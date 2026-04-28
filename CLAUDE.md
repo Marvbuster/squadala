@@ -10,8 +10,30 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 |-----------|------|------------|
 | **Sidecar** | `sidecar/` | Python 3.12+, FastAPI, Anthropic SDK, Pydantic, NetworkX |
 | **SoH-Fork** | `soh-fork/` (ab M4) | C/C++, ImGui, libcurl, nlohmann/json |
+| **SoH-Source** | `soh-source/` (gitignored) | Referenz-Clone von HarbourMasters/Shipwright |
 | **Tooling** | `tooling/` | Python-Scripts für Template-Extraktion, Validierung |
-| **Docs** | `docs/` | Architektur, Specs, Room-Template-Doku |
+| **Docs** | `docs/` | Projekt-Specs (oot-live-dungeon-spec.md) |
+| **Wiki** | `.wiki/` | Technische Erkenntnisse, Architektur, Dungeon-Katalog |
+
+## Wiki (Dreh- und Angelpunkt)
+
+Das Wiki (`.wiki/`) enthält alle technischen Erkenntnisse und ist die zentrale Wissensquelle:
+
+```
+.wiki/
+├── INDEX.md                                    ← Einstiegspunkt
+├── wiki.config.md                              ← Konfiguration
+└── articles/
+    ├── architecture/
+    │   ├── hybrid-architecture.md              ← SoH + Sidecar Architektur
+    │   ├── dungeon-schema.md                   ← Pydantic DungeonSpec
+    │   ├── soh-scene-format.md                 ← .o2r Format, Commands, Actors
+    │   └── dungeon-catalog.md                  ← 218 Räume, Connectivity
+    └── features/
+        └── llm-agent.md                        ← Claude Tool-Use Agent
+```
+
+**WICHTIG:** Vor jeder Implementierung zuerst `.wiki/INDEX.md` lesen. Neue Erkenntnisse immer ins Wiki schreiben, nicht in docs/.
 
 ## Common Commands
 
@@ -50,8 +72,8 @@ uv run uvicorn livegen.api:app --reload --port 7777   # Dev-Server starten
 
 | # | Name | Status | Beschreibung |
 |---|------|--------|-------------|
-| M1 | Sidecar standalone | In Arbeit | FastAPI + Agent + Schema + Tests |
-| M2 | Template-Extraktion | Ausstehend | Raum-Templates aus OoT-Dungeons extrahieren |
+| M1 | Sidecar standalone | Fertig | FastAPI + Agent + Schema + Tests (20/20 grün) |
+| M2 | Template-Extraktion | In Arbeit | 218 Räume katalogisiert, Connectivity-Graphen dokumentiert |
 | M3 | .o2r-Compilation | Ausstehend | Graph → SoH-kompatible Scene-Datei |
 | M4 | In-Game UI | Ausstehend | ImGui-Panel im SoH-Fork |
 | M5 | Hot-Swap | Ausstehend | Runtime Scene-Injection + Door-Hook |
