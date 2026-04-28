@@ -1,0 +1,36 @@
+# macOS
+.DS_Store
+*.swp
+
+# ROMs (legal reasons — never commit)
+roms/
+*.z64
+*.n64
+*.v64
+*.rom
+*.zip
+
+# SoH binary (downloaded, not committed)
+SoH-*.zip
+SoH-*.dmg
+soh.app/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+dist/
+build/
+
+# Environment
+.env
+.env.*
+
+# IDE
+.idea/
+.vscode/
+*.code-workspace
+
+# uv
+sidecar/uv.lock
