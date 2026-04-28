@@ -1,0 +1,167 @@
+{
+  "version": "0.1.0",
+  "description": "OoT dungeon room templates with connectivity data",
+  "dungeons": {
+    "deku_tree": {
+      "name": "Deku Tree",
+      "scene": "ydan_scene",
+      "theme": "forest",
+      "rooms": {
+        "0": {"exits": 3, "connects": [1, 3, 10], "type": "entrance", "size": "medium"},
+        "1": {"exits": 2, "connects": [0, 2], "type": "corridor", "size": "small"},
+        "2": {"exits": 1, "connects": [1], "type": "dead_end", "size": "small"},
+        "3": {"exits": 4, "connects": [0, 4, 7, 9], "type": "hub", "size": "large"},
+        "4": {"exits": 2, "connects": [3, 5], "type": "corridor", "size": "small"},
+        "5": {"exits": 2, "connects": [4, 6], "type": "corridor", "size": "small"},
+        "6": {"exits": 2, "connects": [5, 7], "type": "corridor", "size": "small"},
+        "7": {"exits": 3, "connects": [3, 6, 8], "type": "junction", "size": "medium"},
+        "8": {"exits": 1, "connects": [7], "type": "dead_end", "size": "small"},
+        "9": {"exits": 2, "connects": [3, 11], "type": "corridor", "size": "medium"},
+        "10": {"exits": 1, "connects": [0], "type": "dead_end", "size": "small"},
+        "11": {"exits": 1, "connects": [9], "type": "pre_boss", "size": "small"}
+      }
+    },
+    "dodongo_cavern": {
+      "name": "Dodongo's Cavern",
+      "scene": "ddan_scene",
+      "theme": "stone",
+      "rooms": {
+        "0": {"exits": 6, "connects": [1, 2, 4, 5, 7, 9], "type": "hub", "size": "large"},
+        "1": {"exits": 3, "connects": [0, 3, 11], "type": "junction", "size": "medium"},
+        "2": {"exits": 3, "connects": [0, 5, 15], "type": "junction", "size": "medium"},
+        "3": {"exits": 4, "connects": [1, 4, 10, 12], "type": "hub", "size": "large"},
+        "4": {"exits": 3, "connects": [0, 3, 13], "type": "junction", "size": "medium"},
+        "5": {"exits": 2, "connects": [0, 2], "type": "corridor", "size": "small"},
+        "6": {"exits": 1, "connects": [9], "type": "dead_end", "size": "small"},
+        "7": {"exits": 3, "connects": [0, 8, 16], "type": "junction", "size": "medium"},
+        "8": {"exits": 2, "connects": [7, 14], "type": "corridor", "size": "medium"},
+        "9": {"exits": 4, "connects": [0, 6, 10, 12], "type": "hub", "size": "large"},
+        "10": {"exits": 2, "connects": [3, 9], "type": "corridor", "size": "small"},
+        "11": {"exits": 1, "connects": [1], "type": "dead_end", "size": "small"},
+        "12": {"exits": 2, "connects": [3, 9], "type": "corridor", "size": "small"},
+        "13": {"exits": 1, "connects": [4], "type": "dead_end", "size": "small"},
+        "14": {"exits": 1, "connects": [8], "type": "dead_end", "size": "small"},
+        "15": {"exits": 1, "connects": [2], "type": "dead_end", "size": "small"},
+        "16": {"exits": 1, "connects": [7], "type": "pre_boss", "size": "small"}
+      }
+    },
+    "jabu_jabu": {
+      "name": "Jabu-Jabu's Belly",
+      "scene": "bdan_scene",
+      "theme": "water",
+      "rooms": {
+        "0": {"exits": 1, "connects": [1], "type": "entrance", "size": "small"},
+        "1": {"exits": 5, "connects": [0, 2, 4, 5, 14], "type": "hub", "size": "large"},
+        "2": {"exits": 3, "connects": [1, 3, 7], "type": "junction", "size": "medium"},
+        "3": {"exits": 4, "connects": [2, 6, 13, 14], "type": "hub", "size": "medium"},
+        "4": {"exits": 2, "connects": [1, 6], "type": "corridor", "size": "small"},
+        "5": {"exits": 2, "connects": [1, 15], "type": "corridor", "size": "small"},
+        "6": {"exits": 2, "connects": [3, 4], "type": "corridor", "size": "small"},
+        "7": {"exits": 6, "connects": [2, 8, 9, 10, 11, 12], "type": "hub", "size": "large"},
+        "8": {"exits": 1, "connects": [7], "type": "dead_end", "size": "small"},
+        "9": {"exits": 1, "connects": [7], "type": "dead_end", "size": "small"},
+        "10": {"exits": 1, "connects": [7], "type": "dead_end", "size": "small"},
+        "11": {"exits": 1, "connects": [7], "type": "dead_end", "size": "small"},
+        "12": {"exits": 1, "connects": [7], "type": "dead_end", "size": "small"},
+        "13": {"exits": 1, "connects": [3], "type": "dead_end", "size": "small"},
+        "14": {"exits": 2, "connects": [1, 3], "type": "corridor", "size": "small"},
+        "15": {"exits": 1, "connects": [5], "type": "pre_boss", "size": "small"}
+      }
+    },
+    "forest_temple": {
+      "name": "Forest Temple",
+      "scene": "Bmori1_scene",
+      "theme": "forest",
+      "rooms": {
+        "0": {"exits": 1, "connects": [1], "type": "entrance", "size": "medium"},
+        "1": {"exits": 2, "connects": [0, 2], "type": "corridor", "size": "medium"},
+        "2": {"exits": 7, "connects": [1, 3, 4, 5, 7, 8, 17], "type": "hub", "size": "large"},
+        "3": {"exits": 2, "connects": [2, 16], "type": "corridor", "size": "small"},
+        "4": {"exits": 2, "connects": [2, 6], "type": "corridor", "size": "small"},
+        "5": {"exits": 2, "connects": [2, 11], "type": "corridor", "size": "small"},
+        "6": {"exits": 3, "connects": [4, 12, 13], "type": "junction", "size": "medium"},
+        "7": {"exits": 4, "connects": [2, 9, 10, 15], "type": "hub", "size": "large"},
+        "8": {"exits": 6, "connects": [2, 9, 10, 11, 18, 21], "type": "hub", "size": "large"},
+        "9": {"exits": 2, "connects": [7, 8], "type": "corridor", "size": "small"},
+        "10": {"exits": 2, "connects": [7, 8], "type": "corridor", "size": "small"},
+        "11": {"exits": 3, "connects": [5, 8, 19], "type": "junction", "size": "medium"},
+        "12": {"exits": 2, "connects": [6, 19], "type": "corridor", "size": "medium"},
+        "13": {"exits": 2, "connects": [6, 20], "type": "corridor", "size": "medium"},
+        "14": {"exits": 1, "connects": [20], "type": "dead_end", "size": "small"},
+        "15": {"exits": 3, "connects": [7, 16, 20], "type": "junction", "size": "medium"},
+        "16": {"exits": 2, "connects": [3, 15], "type": "corridor", "size": "small"},
+        "17": {"exits": 2, "connects": [2, 22], "type": "corridor", "size": "medium"},
+        "18": {"exits": 1, "connects": [8], "type": "dead_end", "size": "small"},
+        "19": {"exits": 3, "connects": [11, 12, 21], "type": "junction", "size": "medium"},
+        "20": {"exits": 3, "connects": [13, 14, 15], "type": "junction", "size": "medium"},
+        "21": {"exits": 2, "connects": [8, 19], "type": "corridor", "size": "small"},
+        "22": {"exits": 1, "connects": [17], "type": "pre_boss", "size": "medium"}
+      }
+    },
+    "water_temple": {
+      "name": "Water Temple",
+      "scene": "MIZUsin_scene",
+      "theme": "water",
+      "rooms": {
+        "0": {"exits": 10, "connects": [1, 3, 4, 5, 9, 10, 11, 12, 17, 20], "type": "hub", "size": "large"},
+        "1": {"exits": 2, "connects": [0, 2], "type": "corridor", "size": "medium"},
+        "2": {"exits": 1, "connects": [1], "type": "dead_end", "size": "small"},
+        "3": {"exits": 1, "connects": [0], "type": "dead_end", "size": "small"},
+        "4": {"exits": 1, "connects": [0], "type": "dead_end", "size": "small"},
+        "5": {"exits": 2, "connects": [0, 6], "type": "corridor", "size": "medium"},
+        "6": {"exits": 2, "connects": [5, 13], "type": "corridor", "size": "medium"},
+        "7": {"exits": 2, "connects": [13, 21], "type": "corridor", "size": "small"},
+        "8": {"exits": 2, "connects": [9, 21], "type": "corridor", "size": "medium"},
+        "9": {"exits": 2, "connects": [0, 8], "type": "corridor", "size": "medium"},
+        "10": {"exits": 1, "connects": [0], "type": "dead_end", "size": "small"},
+        "11": {"exits": 2, "connects": [0, 22], "type": "corridor", "size": "medium"},
+        "12": {"exits": 4, "connects": [0, 14, 15, 16], "type": "hub", "size": "medium"},
+        "13": {"exits": 2, "connects": [6, 7], "type": "corridor", "size": "small"},
+        "14": {"exits": 2, "connects": [12, 15], "type": "corridor", "size": "medium"},
+        "15": {"exits": 2, "connects": [12, 14], "type": "corridor", "size": "medium"},
+        "16": {"exits": 1, "connects": [12], "type": "dead_end", "size": "small"},
+        "17": {"exits": 3, "connects": [0, 18, 19], "type": "junction", "size": "medium"},
+        "18": {"exits": 1, "connects": [17], "type": "dead_end", "size": "small"},
+        "19": {"exits": 1, "connects": [17], "type": "dead_end", "size": "small"},
+        "20": {"exits": 1, "connects": [0], "type": "dead_end", "size": "small"},
+        "21": {"exits": 2, "connects": [7, 8], "type": "corridor", "size": "small"},
+        "22": {"exits": 1, "connects": [11], "type": "pre_boss", "size": "medium"}
+      }
+    },
+    "ice_cavern": {
+      "name": "Ice Cavern",
+      "scene": "ice_doukutu_scene",
+      "theme": "ice",
+      "rooms": {
+        "0": {"exits": 1, "connects": [1], "type": "entrance", "size": "medium"},
+        "1": {"exits": 3, "connects": [0, 2, 10], "type": "junction", "size": "medium"},
+        "2": {"exits": 2, "connects": [1, 3], "type": "corridor", "size": "medium"},
+        "3": {"exits": 4, "connects": [2, 4, 8, 11], "type": "hub", "size": "medium"},
+        "4": {"exits": 2, "connects": [3, 5], "type": "corridor", "size": "small"},
+        "5": {"exits": 2, "connects": [4, 6], "type": "corridor", "size": "small"},
+        "6": {"exits": 2, "connects": [5, 7], "type": "corridor", "size": "small"},
+        "7": {"exits": 2, "connects": [6, 10], "type": "corridor", "size": "medium"},
+        "8": {"exits": 2, "connects": [3, 9], "type": "corridor", "size": "small"},
+        "9": {"exits": 1, "connects": [8], "type": "dead_end", "size": "small"},
+        "10": {"exits": 2, "connects": [1, 7], "type": "corridor", "size": "small"},
+        "11": {"exits": 1, "connects": [3], "type": "dead_end", "size": "small"}
+      }
+    }
+  },
+  "room_types": {
+    "entrance": "Eingangsraum, verbindet Overworld mit Dungeon",
+    "hub": "Zentraler Raum mit 4+ Abzweigungen",
+    "junction": "Kreuzung mit 3 Exits",
+    "corridor": "Verbindungsgang mit 2 Exits",
+    "dead_end": "Sackgasse mit 1 Exit (oft Puzzle/Chest)",
+    "pre_boss": "Letzter Raum vor dem Boss",
+    "boss_arena": "Boss-Kampf (separate Scene)"
+  },
+  "design_patterns": {
+    "hub_and_spoke": "Ein zentraler Hub mit vielen Abzweigungen (Dodongo, Water, Ganon)",
+    "linear_chain": "Räume in Reihe, gelegentliche Abzweigungen (Shadow, Ice)",
+    "multi_hub": "Mehrere Hub-Räume verbunden (Jabu, Fire)",
+    "complex_loop": "Verschlungene Pfade die sich kreuzen (Forest)",
+    "split_path": "Parallele Wege die sich am Hub treffen (Spirit)"
+  }
+}
