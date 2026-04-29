@@ -49,11 +49,11 @@ scene.o2r (ZIP-Archiv)
 
 ### Phase 1: Analyse (Read)
 
-- [ ] **1.1** Referenz-Scene wählen (Deku Tree = einfachste)
-- [ ] **1.2** Scene Header (`ydan_scene`) komplett Byte-für-Byte dumpen
-- [ ] **1.3** Jeden Scene Command identifizieren und Grenzen markieren
-- [ ] **1.4** Room Header (`ydan_room_0`) komplett dumpen
-- [ ] **1.5** Room Commands identifizieren (Mesh, ActorList, ObjectList)
+- [x] **1.1** Referenz-Scene wählen (Deku Tree = einfachste) ✅
+- [x] **1.2** Scene Header (`ydan_scene`) komplett Byte-für-Byte dumpen ✅
+- [x] **1.3** Jeden Scene Command identifizieren und Grenzen markieren ✅ 12/12 Commands geparst
+- [x] **1.4** Room Header (`ydan_room_0`) komplett dumpen ✅ 1047/1047 Bytes geparst
+- [x] **1.5** Room Commands identifizieren (Mesh, ActorList, ObjectList) ✅ 8/8 Commands
 - [ ] **1.6** CollisionHeader komplett dumpen und Felder zuordnen
 - [ ] **1.7** Einen Display List Eintrag (`DL_XXXXXX`) dumpen und Befehle identifizieren
 - [ ] **1.8** Vertex-Daten (`Vtx_XXXXXX`) dumpen — Format pro Vertex bestimmen

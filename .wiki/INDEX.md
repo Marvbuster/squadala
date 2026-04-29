@@ -12,6 +12,7 @@
 - [SoH Scene-Format](articles/architecture/soh-scene-format.md) — .o2r Binärformat, Scene Commands, Actors, Collision
 - [Dungeon-Katalog](articles/architecture/dungeon-catalog.md) — 218 Räume, 10 Dungeons, Connectivity-Graphen
 - [O2R Reverse Engineering](articles/architecture/o2r-reverse-engineering.md) — Checkliste, Binärformate, Round-Trip Plan
+- [Deku Tree Binary Analysis](articles/architecture/deku-tree-binary-analysis.md) — **WICHTIG** Byte-für-Byte Referenz für Scene-Writer
 
 ## Features
 
