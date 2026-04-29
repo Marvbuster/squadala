@@ -1,7 +1,7 @@
 # Wiki Index
 
 > Auto-maintained. Regenerate with `/wiki-index`.
-> **Last updated:** 2026-04-29 | **Articles:** 5 | **Archived:** 0
+> **Last updated:** 2026-04-29 | **Articles:** 6 | **Archived:** 0
 
 ---
 
@@ -18,11 +18,11 @@
 
 ## Milestones
 
-_(Noch keine Artikel)_
+- [Progress](articles/milestones/progress.md) — M1-M6 Status, Erkenntnisse, offene Punkte
 
 ---
 
 ## Stats
 
-- **Total:** 5 articles (0 archived)
-- **By category:** Architecture(4), Features(1), Milestones(0)
+- **Total:** 6 articles (0 archived)
+- **By category:** Architecture(4), Features(1), Milestones(1)
