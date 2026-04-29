@@ -10,6 +10,7 @@
 
 | Version | Sidecar | SoH-Fork | Status |
 |---------|---------|----------|--------|
+| v0.3 | Build 1 | Build 1 | Abgeschlossen |
 | v0.2 | Build 1 | Build 1 | Abgeschlossen |
 | v0.1 | Build 1 | — | Abgeschlossen |
 

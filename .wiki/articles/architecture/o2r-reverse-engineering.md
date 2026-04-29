@@ -54,11 +54,11 @@ scene.o2r (ZIP-Archiv)
 - [x] **1.3** Jeden Scene Command identifizieren und Grenzen markieren ✅ 12/12 Commands geparst
 - [x] **1.4** Room Header (`ydan_room_0`) komplett dumpen ✅ 1047/1047 Bytes geparst
 - [x] **1.5** Room Commands identifizieren (Mesh, ActorList, ObjectList) ✅ 8/8 Commands
-- [ ] **1.6** CollisionHeader komplett dumpen und Felder zuordnen
-- [ ] **1.7** Einen Display List Eintrag (`DL_XXXXXX`) dumpen und Befehle identifizieren
+- [x] **1.6** CollisionHeader komplett dumpen und Felder zuordnen ✅ 46108/46108 Bytes
+- [x] **1.7** Display List Format verstanden ✅ TLDO magic, GBI commands, OTR-Opcodes
 - [ ] **1.8** Vertex-Daten (`Vtx_XXXXXX`) dumpen — Format pro Vertex bestimmen
 - [ ] **1.9** Textur-Referenzen verstehen — wie DLs auf Tex-Einträge verweisen
-- [ ] **1.10** Actor Entry Format verifizieren (16 Bytes: id, pos, rot, params)
+- [x] **1.10** Actor Entry Format verifiziert ✅ (16 Bytes: id, pos, rot, params)
 
 ### Phase 2: Dokumentation
 
@@ -72,10 +72,14 @@ scene.o2r (ZIP-Archiv)
 
 ### Phase 3: Round-Trip Test
 
-- [ ] **3.1** Python-Parser schreiben der eine Scene komplett lesen kann
-- [ ] **3.2** Python-Writer schreiben der die gelesenen Daten identisch zurückschreibt
-- [ ] **3.3** Round-Trip Test: read(ydan) → write → read → verify identical
-- [ ] **3.4** Generierte .o2r in SoH laden und verifizieren (sieht identisch aus?)
+- [x] **3.1** Python-Parser für Scene komplett ✅ (alle 12 Commands)
+- [x] **3.2** Python-Parser für Room komplett ✅ (alle 8 Commands inkl. SetMesh)
+- [x] **3.3** Round-Trip Tests:
+  - ✅ Scene Header: 1167/1167 bytes PERFECT MATCH
+  - ✅ Room Header: 1047/1047 bytes PERFECT MATCH
+  - ✅ CollisionHeader: 46108/46108 bytes PERFECT MATCH
+  - Fixes: SkyboxSettings=4B (nicht 3), Cutscenes empty=+1B padding
+- [ ] **3.4** Generierte .o2r in SoH laden und verifizieren
 
 ### Phase 4: Minimale eigene Scene
 

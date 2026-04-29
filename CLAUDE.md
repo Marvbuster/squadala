@@ -72,12 +72,12 @@ uv run uvicorn livegen.api:app --reload --port 7777   # Dev-Server starten
 
 | # | Name | Status | Beschreibung |
 |---|------|--------|-------------|
-| M1 | Sidecar standalone | Fertig | FastAPI + Agent + Schema + Tests (20/20 grün) |
-| M2 | Template-Extraktion | Fertig | 218 Räume katalogisiert, Template Library, 36 Tests |
-| M3 | .o2r-Compilation | Fertig (Grundgerüst) | Scene Compiler, Layout Solver, Logic Validator |
-| M4 | In-Game UI | In Arbeit | LiveGenPanel + Client geschrieben, SoH Build läuft |
-| M5 | Hot-Swap | Ausstehend | Runtime Scene-Injection + Door-Hook |
-| M6 | Polish | Ausstehend | Caching, Streaming-UI, Debug-Overlay |
+| M1 | Sidecar standalone | Fertig | FastAPI + Structured JSON Agent + Gemma 4 (100% success) |
+| M2 | Template-Extraktion | Fertig | 218 Räume, Template Library, 36 Tests |
+| M3 | .o2r-Compilation | Fertig (Round-Trip) | Scene+Room+Collision Round-Trip 100% verifiziert |
+| M4 | In-Game UI | Fertig | Squadala Panel, Background-Threading, Gemma 4 via MLX |
+| M5 | Hot-Swap | In Arbeit | Scene-Builder geschrieben, Blender-Export, nächster Schritt: eigene Scene laden |
+| M6 | Polish | Ausstehend | Streaming-UI, Debug-Overlay |
 
 ## Code Rules
 
