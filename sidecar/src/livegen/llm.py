@@ -129,26 +129,40 @@ class OpenAICompatibleBackend(LLMBackend):
         for msg in messages:
             openai_messages.append(self._convert_message(msg))
 
-        response = self.client.chat.completions.create(
-            model=self.model,
-            messages=openai_messages,
-            tools=openai_tools if openai_tools else None,
-            max_tokens=max_tokens,
-        )
+        kwargs = {
+            "model": self.model,
+            "messages": openai_messages,
+            "max_tokens": max_tokens,
+        }
+        if openai_tools:
+            kwargs["tools"] = openai_tools
+        response = self.client.chat.completions.create(**kwargs)
 
         choice = response.choices[0]
         tool_calls = []
+        text = choice.message.content or ""
+
         if choice.message.tool_calls:
             for tc in choice.message.tool_calls:
                 try:
                     args = json.loads(tc.function.arguments)
                 except json.JSONDecodeError:
                     args = {}
-                tool_calls.append(ToolCall(id=tc.id, name=tc.function.name, input=args))
+                tool_calls.append(ToolCall(id=tc.id or f"call_{len(tool_calls)}", name=tc.function.name, input=args))
+
+            # If no text content but tool calls exist and we didn't ask for tools,
+            # the model might have put the JSON in a tool call argument
+            if not text and not openai_tools:
+                # Extract text from tool call arguments (Gemma quirk)
+                for tc in choice.message.tool_calls:
+                    text = tc.function.arguments or ""
+                    if text.strip().startswith("{"):
+                        tool_calls = []  # These aren't real tool calls
+                        break
 
         return LLMResponse(
             tool_calls=tool_calls,
-            text=choice.message.content,
+            text=text,
             raw=response,
         )
 
@@ -161,15 +175,15 @@ class OpenAICompatibleBackend(LLMBackend):
 
     def format_assistant_response(self, response: LLMResponse) -> dict:
         choice = response.raw.choices[0]
-        msg: dict = {"role": "assistant", "content": choice.message.content}
+        msg: dict = {"role": "assistant", "content": choice.message.content or ""}
         if choice.message.tool_calls:
             msg["tool_calls"] = [
                 {
-                    "id": tc.id,
+                    "id": tc.id or f"call_{i}",
                     "type": "function",
-                    "function": {"name": tc.function.name, "arguments": tc.function.arguments},
+                    "function": {"name": tc.function.name, "arguments": tc.function.arguments or "{}"},
                 }
-                for tc in choice.message.tool_calls
+                for i, tc in enumerate(choice.message.tool_calls)
             ]
         return msg
 
