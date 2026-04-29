@@ -10,7 +10,8 @@
 
 | Version | Sidecar | SoH-Fork | Status |
 |---------|---------|----------|--------|
-| v0.1 | Build 1 | — | In Arbeit |
+| v0.2 | Build 1 | Build 1 | Abgeschlossen |
+| v0.1 | Build 1 | — | Abgeschlossen |
 
 ## Verzeichnisstruktur
 

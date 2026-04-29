@@ -73,9 +73,9 @@ uv run uvicorn livegen.api:app --reload --port 7777   # Dev-Server starten
 | # | Name | Status | Beschreibung |
 |---|------|--------|-------------|
 | M1 | Sidecar standalone | Fertig | FastAPI + Agent + Schema + Tests (20/20 grün) |
-| M2 | Template-Extraktion | In Arbeit | 218 Räume katalogisiert, Connectivity-Graphen dokumentiert |
-| M3 | .o2r-Compilation | Ausstehend | Graph → SoH-kompatible Scene-Datei |
-| M4 | In-Game UI | Ausstehend | ImGui-Panel im SoH-Fork |
+| M2 | Template-Extraktion | Fertig | 218 Räume katalogisiert, Template Library, 36 Tests |
+| M3 | .o2r-Compilation | Fertig (Grundgerüst) | Scene Compiler, Layout Solver, Logic Validator |
+| M4 | In-Game UI | In Arbeit | LiveGenPanel + Client geschrieben, SoH Build läuft |
 | M5 | Hot-Swap | Ausstehend | Runtime Scene-Injection + Door-Hook |
 | M6 | Polish | Ausstehend | Caching, Streaming-UI, Debug-Overlay |
 

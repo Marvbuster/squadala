@@ -9,4 +9,4 @@
 ### Sidecar
 | Build | Datum | Status |
 |-------|-------|--------|
-| 1 | 28.04.2026 | In Arbeit |
+| 1 | 28.04.2026 | Abgeschlossen |
