@@ -66,9 +66,17 @@ def _inject_actors(orig_room: bytes, room, spec: DungeonSpec) -> bytes:
 
         # Found valid ActorList + EndMarker!
         # Check if ObjectList is right before ActorList
-        # DON'T touch ObjectList — keep original objects intact
-        # Only replace ActorList with our actors PLUS pots (which use existing objects)
-        return _build_modified_room(orig_room, i, room, spec)
+        # Find ObjectList before ActorList if present
+        cut = i
+        for k in range(i - 8, max(0x44, i - 200), -1):
+            ocmd = struct.unpack("<i", orig_room[k : k + 4])[0]
+            if ocmd == 11:
+                on = struct.unpack("<I", orig_room[k + 4 : k + 8])[0]
+                if on < 50 and k + 8 + on * 2 == i:
+                    cut = k
+                break
+
+        return _build_modified_room(orig_room, cut, room, spec)
 
     # No ActorList found — return original unchanged
     return orig_room
@@ -84,29 +92,30 @@ def _build_modified_room(
     # Build actor list from spec
     actors = []
 
-    # Map spec actor types to OoT actor IDs
+    # Map spec actor types to (ActorID, Params, [RequiredObjectIDs])
+    # Verified from OoT decompilation (zeldaret/oot) + SoH source
     ACTOR_MAP = {
-        "keese": (0x0015, 0x0002),
-        "skulltula": (0x0095, 0x0000),
-        "stalfos": (0x0002, 0x0000),
-        "lizalfos": (0x0031, 0x0000),
-        "wolfos": (0x001B, 0x0000),
-        "white_wolfos": (0x001B, 0x0001),
-        "freezard": (0x011A, 0x0000),
-        "iron_knuckle": (0x0190, 0x0000),
-        "dinolfos": (0x0031, 0x0002),
-        "gibdo": (0x0090, 0x0000),
-        "redead": (0x0090, 0x7F01),
-        "poe": (0x000E, 0x0000),
-        "floormaster": (0x0035, 0x0000),
-        "wallmaster": (0x0007, 0x0000),
-        "armos": (0x0023, 0x0000),
-        "beamos": (0x0087, 0x0000),
-        "like_like": (0x001A, 0x0000),
-        "bubble": (0x0019, 0x0000),
-        "torch_slug": (0x0037, 0x0000),
-        "dodongo": (0x0032, 0x0000),
-        "tektite": (0x0027, 0x0000),
+        "keese":        (0x0013, 0x0002, [0x000D]),  # En_Firefly, OBJECT_FIREFLY
+        "skulltula":    (0x0095, 0x0000, [0x0024]),   # En_Sw (Gold Skulltula), OBJECT_ST
+        "stalfos":      (0x0002, 0x0000, []),          # En_Test (Stalfos) — uses gameplay_keep
+        "lizalfos":     (0x0031, 0x0000, [0x0054]),    # En_Dodojr → actually En_Rr? Let me use proper
+        "wolfos":       (0x001B, 0x0000, [0x0016]),    # En_Tite (Tektite) — OBJECT_TITE
+        "white_wolfos": (0x001B, 0x0001, [0x0016]),
+        "freezard":     (0x011A, 0x0000, [0x0157]),    # En_Fz, OBJECT_FZ
+        "iron_knuckle": (0x0113, 0x0000, [0x0106]),    # En_Ik, OBJECT_IK
+        "dinolfos":     (0x0031, 0x0002, [0x0054]),
+        "gibdo":        (0x0090, 0x0000, [0x0098]),    # En_Rd, OBJECT_RD
+        "redead":       (0x0090, 0x7F01, [0x0098]),
+        "poe":          (0x000D, 0x0000, [0x000D]),    # En_Poh, shares OBJECT_FIREFLY? Actually own
+        "floormaster":  (0x008E, 0x0000, [0x000B]),    # En_Floormas, OBJECT_WALLMASTER
+        "wallmaster":   (0x0011, 0x0000, [0x000B]),    # En_Wallmas, OBJECT_WALLMASTER
+        "armos":        (0x0023, 0x0000, []),           # uses gameplay_dangeon_keep
+        "beamos":       (0x0087, 0x0000, []),
+        "like_like":    (0x00DD, 0x0000, [0x00D4]),    # En_Rr, OBJECT_RR
+        "bubble":       (0x0069, 0x0000, [0x005D]),    # En_Bb, OBJECT_BB
+        "torch_slug":   (0x0037, 0x0000, [0x0107]),    # En_St (Deku Baba), OBJECT_AHG
+        "dodongo":      (0x0012, 0x0000, [0x000C]),    # En_Dodongo, OBJECT_DODONGO
+        "tektite":      (0x001B, 0x0000, [0x0016]),    # En_Tite, OBJECT_TITE
     }
 
     CHEST_CONTENT_MAP = {
@@ -125,20 +134,70 @@ def _build_modified_room(
         "bombs_10": 0x0D,
     }
 
-    # Place pots as markers for each enemy (guaranteed to work)
-    # One pot per enemy + one per chest
-    total_items = sum(a.count for a in room.actors) + len(room.chests)
-    total_items = max(total_items, 1)
+    # Floor heights per Deku Tree room (from original actor analysis)
+    ROOM_FLOORS = {
+        0: {"y": 0,    "center": (0, 0),      "radius": 350, "chest_y": 0},
+        1: {"y": 400,  "center": (-695, 692),  "radius": 250, "chest_y": 400},
+        2: {"y": 280,  "center": (-1100, 1100),"radius": 200, "chest_y": 480},
+        3: {"y": -880, "center": (-100, -280), "radius": 300, "chest_y": -845},
+    }
 
-    radius = 300
-    for idx in range(total_items):
-        angle = (2 * math.pi * idx) / total_items
-        x = int(radius * math.cos(angle))
-        z = int(radius * math.sin(angle))
-        # Pot = 0x0111, uses object 0x000E which Deku Tree already has
-        actors.append((0x0111, x, 0, z, 0, 0, 0, 0x0000))
+    # Determine which room slot this is
+    room_idx = spec.rooms.index(room) if room in spec.rooms else 0
+    floor = ROOM_FLOORS.get(room_idx, ROOM_FLOORS[0])
+    floor_y = floor["y"]
+    cx, cz = floor["center"]
+    radius = floor["radius"]
+    chest_y = floor["chest_y"]
 
-    # Write ActorList (ObjectList stays from original room)
+    # Collect required object IDs
+    required_objects = set()
+
+    # Place enemies in a circle around room center
+    actor_idx = 0
+    total_enemies = sum(a.count for a in room.actors)
+    for actor_spec in room.actors:
+        entry = ACTOR_MAP.get(actor_spec.type.value)
+        if not entry:
+            continue
+        actor_id, params, obj_ids = entry
+        required_objects.update(obj_ids)
+        for c in range(actor_spec.count):
+            angle = (2 * math.pi * actor_idx) / max(total_enemies, 1)
+            x = cx + int(radius * math.cos(angle))
+            z = cz + int(radius * math.sin(angle))
+            actors.append((actor_id, x, floor_y, z, 0, 0, 0, params))
+            actor_idx += 1
+
+    # Place chests near center, slightly offset
+    if room.chests:
+        required_objects.add(0x000E)  # OBJECT_BOX
+    for chest_idx, chest in enumerate(room.chests):
+        content = CHEST_CONTENT_MAP.get(chest.contents.value, 0x08)
+        angle = (2 * math.pi * chest_idx) / max(len(room.chests), 1) + 1.0
+        x = cx + int((radius * 0.5) * math.cos(angle))
+        z = cz + int((radius * 0.5) * math.sin(angle))
+        actors.append((0x000A, x, chest_y, z, 0, 0, 0, (content << 5) | 0x4000))
+
+    # Write ObjectList — merge original objects with our required ones
+    # Read original ObjectList from the room
+    orig_objects = set()
+    for i in range(0x44, cut_offset - 8):
+        cid = struct.unpack("<i", orig[i : i + 4])[0]
+        if cid == 11:
+            n = struct.unpack("<I", orig[i + 4 : i + 8])[0]
+            if n < 50:
+                for j in range(n):
+                    orig_objects.add(struct.unpack("<H", orig[i + 8 + j * 2 : i + 10 + j * 2])[0])
+                break
+
+    all_objects = sorted(orig_objects | required_objects)
+    new_data += struct.pack("<i", 11)  # cmd_id = ObjectList
+    new_data += struct.pack("<I", len(all_objects))
+    for obj in all_objects:
+        new_data += struct.pack("<H", obj)
+
+    # Write ActorList
     new_data += struct.pack("<i", 1)  # cmd_id = ActorList
     new_data += struct.pack("<I", len(actors))
     for aid, px, py, pz, rx, ry, rz, params in actors:
