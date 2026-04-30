@@ -50,6 +50,7 @@ class Session:
     messages: list[dict] = field(default_factory=list)
     finished: bool = False
     result: DungeonSpec | None = None
+    stored_id: str | None = None
 
 
 class DungeonAgent:
