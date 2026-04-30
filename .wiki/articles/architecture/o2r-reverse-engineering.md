@@ -79,7 +79,11 @@ scene.o2r (ZIP-Archiv)
   - ✅ Room Header: 1047/1047 bytes PERFECT MATCH
   - ✅ CollisionHeader: 46108/46108 bytes PERFECT MATCH
   - Fixes: SkyboxSettings=4B (nicht 3), Cutscenes empty=+1B padding
-- [ ] **3.4** Generierte .o2r in SoH laden und verifizieren
+- [x] **3.4** Generierte .o2r in SoH laden und verifizieren ✅
+  - Verbatim Room-Copy: funktioniert, kein Crash
+  - Actor-Injection: funktioniert! 2 extra Töpfe sichtbar in Link's Haus
+  - Mesh-Type-Wechsel (Type 1→0): crasht — Scene erwartet spezifischen Type
+  - Override ohne alt/-Prefix auf Original-Pfad: funktioniert
 
 ### Phase 4: Minimale eigene Scene
 
