@@ -84,6 +84,9 @@ scene.o2r (ZIP-Archiv)
   - Actor-Injection: funktioniert! 2 extra Töpfe sichtbar in Link's Haus
   - Mesh-Type-Wechsel (Type 1→0): crasht — Scene erwartet spezifischen Type
   - Override ohne alt/-Prefix auf Original-Pfad: funktioniert
+  - **ROOM-SWAP**: Deku Tree Room 3 → Link's Haus: Geometrie + Gegner + Collision ✅
+  - Scene-Header MUSS original bleiben, nur Room + Collision austauschbar
+  - Custom Scene-Header crasht (fehlende AlternateHeaders/Cutscenes)
 
 ### Phase 4: Minimale eigene Scene
 
