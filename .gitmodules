@@ -1,0 +1,4 @@
+[submodule "soh-source"]
+	path = soh-source
+	url = git@github.com:Marvbuster/Shipwright-Squadala.git
+	branch = develop

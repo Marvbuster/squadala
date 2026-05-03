@@ -38,8 +38,7 @@ build/
 # uv
 sidecar/uv.lock
 
-# SoH source (reference only, not our code)
-soh-source/
+# soh-source/ is a git submodule pointing to Marvbuster/Shipwright-Squadala
 
 # SoH App (extracted binary)
 SoH-App/
