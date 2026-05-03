@@ -76,8 +76,9 @@ uv run uvicorn livegen.api:app --reload --port 7777   # Dev-Server starten
 | M2 | Template-Extraktion | Fertig | 218 Räume, Template Library, 36 Tests |
 | M3 | .o2r-Compilation | Fertig (Round-Trip) | Scene+Room+Collision Round-Trip 100% verifiziert |
 | M4 | In-Game UI | Fertig | Squadala Panel, Background-Threading, Gemma 4 via MLX |
-| M5 | Hot-Swap | In Arbeit | Scene-Builder geschrieben, Blender-Export, nächster Schritt: eigene Scene laden |
-| M6 | Polish | Ausstehend | Streaming-UI, Debug-Overlay |
+| M5 | Hot-Swap | Fertig | Custom .o2r per Hot-Reload, Resource-Eviction, Scene-Override-Pipeline komplett |
+| M5+ | Custom Geometry | Fertig | Eigene Display Lists rendern! G_VTX_OTR_HASH, OVTX-Vertex-Resources, GbiWrap-Resolution verstanden |
+| M6 | Polish | Ausstehend | Streaming-UI, Debug-Overlay, vollständiger Box-Raum (6 Wände + Boden + Decke) |
 
 ## Code Rules
 

@@ -51,14 +51,33 @@ related:
 - Registrierung in SoH via AddGuiWindow Pattern
 - **Offen:** SoH from Source builden, Panel registrieren
 
-## M5 — Hot-Swap ⬜
+## M5 — Hot-Swap ✅
 
-**Status:** Geplant
+**Status:** Fertig | **Version:** v0.3 + v0.4
 
-- SceneInjector: .o2r zur Laufzeit in mods/ schreiben
-- DoorHook: nächste Tür auf neue Scene umleiten
-- Randomizer EntranceOverride-System als Basis
-- PR #5105 "Shuffle Dungeon Doors" als Referenz
+- ✅ ArchiveManager::AddArchive zur Laufzeit
+- ✅ ResourceManager::UnloadResource + LoadResourceProcess Preload
+- ✅ Deferred Eviction in UpdateElement (vermeidet Use-After-Free)
+- ✅ Scene-Override-Pipeline (Custom Scene + Room + Collision)
+- ✅ Collision-Rebind in Scene_CommandCollisionHeader
+- ✅ Transition-Actor-Block für Debug-Room-Modus
+- ✅ Direct-Warp via TRANS_TRIGGER_START
+
+## M5+ — Custom Geometry ✅ (Bonus)
+
+**Status:** Fertig | **Version:** v0.4 (03.05.2026)
+
+- ✅ CRC64-Hash-Implementation (ECMA-182, kein Final Inversion)
+- ✅ OVTX Vertex Resource (Type 0x4F565458)
+- ✅ TLDO Display List Resource (Type 0x4F444C54)
+- ✅ G_VTX_OTR_HASH (0x32, expanded 16B) referenziert Vertices per Hash
+- ✅ GbiWrap.cpp __OTR__ DL Resolution verstanden und dokumentiert
+- ✅ Render-State korrekt encoded (G_MDSFT_RENDERMODE = 3, NICHT 0!)
+- ✅ Vier farbige Triangles rendern in Custom-Raum
+- ✅ 64 Tests grün
+- 🔜 Vollständiger Box-Raum (6 Wände + Boden + Decke)
+- 🔜 LLM-spezifizierte Meshes
+- 🔜 Texturen statt Vertex-Farben
 
 ## M6 — Polish ⬜
 

@@ -1,7 +1,7 @@
 # Wiki Index
 
 > Auto-maintained. Regenerate with `/wiki-index`.
-> **Last updated:** 2026-04-29 | **Articles:** 7 | **Archived:** 0
+> **Last updated:** 2026-05-03 | **Articles:** 10 | **Archived:** 0
 
 ---
 
@@ -13,6 +13,9 @@
 - [Dungeon-Katalog](articles/architecture/dungeon-catalog.md) — 218 Räume, 10 Dungeons, Connectivity-Graphen
 - [O2R Reverse Engineering](articles/architecture/o2r-reverse-engineering.md) — Checkliste, Binärformate, Round-Trip Plan
 - [Deku Tree Binary Analysis](articles/architecture/deku-tree-binary-analysis.md) — **WICHTIG** Byte-für-Byte Referenz für Scene-Writer
+- [OTR DL Resolution](articles/architecture/otr-dl-resolution.md) — **KRITISCH** GbiWrap.cpp resolved __OTR__ DL-Pfade
+- [Custom Geometry Pipeline](articles/architecture/custom-geometry-pipeline.md) — **NEW v0.4** Komplette Pipeline funktioniert! Custom 3D rendert
+- [Mesh Generation Research](articles/architecture/mesh-generation-research.md) — MeshLLM, ArtLLM, Strategien für LLM-generierte Geometrie
 
 ## Features
 
@@ -26,5 +29,5 @@
 
 ## Stats
 
-- **Total:** 7 articles (0 archived)
-- **By category:** Architecture(5), Features(1), Milestones(1)
+- **Total:** 10 articles (0 archived)
+- **By category:** Architecture(8), Features(1), Milestones(1)
