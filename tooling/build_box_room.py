@@ -112,37 +112,48 @@ def gfx_le(w0: int, w1: int) -> bytes:
 # Box Room Geometry
 # ============================================================
 
-def build_box_vertices(w=1500, h=1200, d=1500):
-    """RADICAL TEST: just 3 vertices forming one HUGE pink triangle right above Link.
+def build_box_vertices(w=600, h=600, d=600):
+    """24 vertices for a complete box room — 4 per face, each face has its own color.
 
-    If we don't see this, our DL isn't rendering at all.
+    Player is INSIDE the box. Normals point inward (CCW winding from inside view).
+    With G_CULL_BACK enabled, only inward-facing triangles render.
     """
-    # 4 triangles in 4 cardinal directions around origin — Link must see ONE of them
-    # Each triangle is 800x600, distance 500 from origin in its direction
+    floor_y = -100   # matches collision floor
+    ceiling_y = floor_y + h
     verts = []
     colors = []
 
-    # NORTH (-Z): RED
-    verts += [(-400, 0, -500), (400, 0, -500), (0, 600, -500)]
-    colors += [(255, 0, 0, 255)] * 3
+    # 6 faces × 4 vertices each = 24 vertices total
+    # Per face: (v0, v1, v2, v3) defines a quad, split into 2 tris later
+    # Vertex order matters for inward-facing normals
+    face_data = [
+        # FLOOR (Y=floor_y, normal +Y)
+        # Looking from above (inside): CCW order is BL, BR, TR, TL
+        [(-w, floor_y,  d), ( w, floor_y,  d), ( w, floor_y, -d), (-w, floor_y, -d),
+         (60, 180, 60, 255)],   # green floor
 
-    # SOUTH (+Z): GREEN
-    verts += [(-400, 0, 500), (400, 0, 500), (0, 600, 500)]
-    colors += [(0, 255, 0, 255)] * 3
+        # CEILING (Y=ceiling_y, normal -Y)
+        # Looking from below (inside): CCW order opposite of floor
+        [(-w, ceiling_y, -d), ( w, ceiling_y, -d), ( w, ceiling_y,  d), (-w, ceiling_y,  d),
+         (180, 60, 60, 255)],   # red ceiling
 
-    # EAST (+X): BLUE
-    verts += [(500, 0, -400), (500, 0, 400), (500, 600, 0)]
-    colors += [(0, 100, 255, 255)] * 3
+        # NORTH WALL (Z=-d, normal +Z, inward)
+        # From inside looking north: BL=(-w,bottom,-d), BR=(w,bottom,-d), TR=(w,top,-d), TL=(-w,top,-d)
+        [(-w, floor_y, -d), ( w, floor_y, -d), ( w, ceiling_y, -d), (-w, ceiling_y, -d),
+         (60, 100, 220, 255)],  # blue north wall
 
-    # WEST (-X): YELLOW
-    verts += [(-500, 0, -400), (-500, 0, 400), (-500, 600, 0)]
-    colors += [(255, 255, 0, 255)] * 3
+        # SOUTH WALL (Z=+d, normal -Z, inward)
+        [( w, floor_y,  d), (-w, floor_y,  d), (-w, ceiling_y,  d), ( w, ceiling_y,  d),
+         (220, 200, 60, 255)],  # yellow south wall
 
-    # Pad to 24 (have 12 unique)
-    while len(verts) < 24:
-        verts.append(verts[0])
-        colors.append(colors[0])
-    face_data = []
+        # WEST WALL (X=-w, normal +X, inward)
+        [(-w, floor_y,  d), (-w, floor_y, -d), (-w, ceiling_y, -d), (-w, ceiling_y,  d),
+         (60, 200, 200, 255)],  # cyan west wall
+
+        # EAST WALL (X=+w, normal -X, inward)
+        [( w, floor_y, -d), ( w, floor_y,  d), ( w, ceiling_y,  d), ( w, ceiling_y, -d),
+         (200, 60, 200, 255)],  # magenta east wall
+    ]
 
     for v0, v1, v2, v3, col in face_data:
         verts.extend([v0, v1, v2, v3])
@@ -152,13 +163,18 @@ def build_box_vertices(w=1500, h=1200, d=1500):
 
 
 def build_box_faces():
-    """4 triangles in 4 directions — at least one should be visible from any spawn orientation."""
-    return [
-        (0, 1, 2),    # north  (red)
-        (3, 4, 5),    # south  (green)
-        (6, 7, 8),    # east   (blue)
-        (9, 10, 11),  # west   (yellow)
-    ]
+    """12 triangles (6 quads × 2 tris). Each quad uses 4 dedicated vertices.
+
+    Quad winding (v0, v1, v2, v3) is CCW from inside the room.
+    Split into triangles: (v0, v1, v2) and (v0, v2, v3).
+    """
+    faces = []
+    for face_idx in range(6):
+        base = face_idx * 4
+        v0, v1, v2, v3 = base, base + 1, base + 2, base + 3
+        faces.append((v0, v1, v2))  # first triangle of quad
+        faces.append((v0, v2, v3))  # second triangle of quad
+    return faces
 
 
 # ============================================================
@@ -206,14 +222,16 @@ def build_display_list(vtx_path: str, vtx_count: int, faces: list) -> bytes:
         0  # G_CYC_1CYCLE = 0
     )
 
-    # 3. Set render mode: G_MDSFT_RENDERMODE=3, len=29 (correct shift!)
+    # 3. Set render mode: AA + Z-buffer + opaque surface (proper depth rendering)
     cmds += gfx_le(
         (G_SETOTHERMODE_L << 24) | ((32 - 3 - 29) << 8) | (29 - 1),
-        RENDERMODE_OPA_SURF_NO_Z
+        RENDERMODE_AA_ZB_OPA
     )
 
-    # 4. Load geometry mode: G_SHADE for vertex colors + smooth interpolation
-    geom_flags = G_SHADE | G_SHADING_SMOOTH
+    # 4. Load geometry mode: Z-buffer + smooth shaded vertex colors + cull back
+    #    G_CULL_BACK in F3DEX2 = 0x00000400 (bit 10)
+    G_CULL_BACK = 0x00000400
+    geom_flags = G_ZBUFFER | G_SHADE | G_SHADING_SMOOTH | G_CULL_BACK
     cmds += gfx_le(G_GEOMETRYMODE << 24, geom_flags)
 
     # 5. Set combiner to G_CC_SHADE (use vertex colors)
@@ -409,49 +427,93 @@ def build_room_header(dl_path: str) -> bytes:
 # Collision (LOCO) — simple flat floor
 # ============================================================
 
-def build_collision(w=4000, h=2000, d=4000) -> bytes:
-    """Big flat floor — original Deku Tree spawn could be anywhere, we need wide coverage."""
+def build_collision(w=600, h=600, d=600) -> bytes:
+    """Complete box collision: floor + 4 walls + ceiling.
+
+    Box matches the visual mesh dimensions (w/h/d match build_box_vertices).
+    Floor at Y=-100 so Link can spawn at Y=0 and land softly.
+    """
     header = build_resource_header(RES_COLLISION)
 
-    floor_y = -100  # Floor well below spawn so BgCheck definitely finds it
+    floor_y = -100
+    ceiling_y = floor_y + h
 
     body = bytearray()
     # Bounding box
-    body += struct.pack('<hhh', -w, floor_y, -d)   # min
-    body += struct.pack('<hhh', w, h, d)            # max
+    body += struct.pack('<hhh', -w, floor_y, -d)        # min
+    body += struct.pack('<hhh', w, ceiling_y, d)        # max
 
-    # Vertices
-    verts = [(-w, floor_y, -d), (w, floor_y, -d), (w, floor_y, d), (-w, floor_y, d)]
+    # 8 vertices: 4 floor corners + 4 ceiling corners
+    # Floor (Y=floor_y):    0=(-w,-d), 1=(w,-d), 2=(w,d), 3=(-w,d)
+    # Ceiling (Y=ceiling_y): 4=(-w,-d), 5=(w,-d), 6=(w,d), 7=(-w,d)
+    verts = [
+        (-w, floor_y,   -d),  # 0
+        ( w, floor_y,   -d),  # 1
+        ( w, floor_y,    d),  # 2
+        (-w, floor_y,    d),  # 3
+        (-w, ceiling_y, -d),  # 4
+        ( w, ceiling_y, -d),  # 5
+        ( w, ceiling_y,  d),  # 6
+        (-w, ceiling_y,  d),  # 7
+    ]
     body += struct.pack('<i', len(verts))
     for v in verts:
         body += struct.pack('<hhh', *v)
 
-    # Polygons (2 triangles for floor)
-    # Winding: CCW from above gives +Y normal (walkable floor)
-    polys = [(0, 0, 2, 1), (0, 0, 3, 2)]
+    # Polygons: 12 triangles (2 floor + 2 ceiling + 2 per wall × 4)
+    # Format: (surface_type, vIA, vIB, vIC, normalX, normalY, normalZ, dist)
+    # All normals as int16 with 0x7FFF = 1.0 in fixed point.
+    NX_POS = 0x7FFF; NX_NEG = 0x8001  # ±1 in X
+    NY_POS = 0x7FFF; NY_NEG = 0x8001  # ±1 in Y
+    NZ_POS = 0x7FFF; NZ_NEG = 0x8001  # ±1 in Z
+
+    # dist = -dot(normal, vertex_on_plane). For normal (0,1,0) and floor at Y=-100:
+    # dist = -(-100) = 100 (the formula is normal · point + dist = 0)
+    polys = [
+        # FLOOR — normal +Y. CCW from above: 0,2,1 and 0,3,2
+        (0, 0, 2, 1, 0, NY_POS, 0, -floor_y),
+        (0, 0, 3, 2, 0, NY_POS, 0, -floor_y),
+
+        # CEILING — normal -Y. CCW from below: 4,5,6 and 4,6,7
+        (0, 4, 5, 6, 0, NY_NEG, 0, ceiling_y),
+        (0, 4, 6, 7, 0, NY_NEG, 0, ceiling_y),
+
+        # NORTH WALL Z=-d, normal +Z (inward). Floor verts 0,1; Ceiling 4,5
+        # CCW from inside (south side, looking north): 0,1,5 and 0,5,4
+        (0, 0, 1, 5, 0, 0, NZ_POS, d),
+        (0, 0, 5, 4, 0, 0, NZ_POS, d),
+
+        # SOUTH WALL Z=+d, normal -Z (inward). Floor 2,3; Ceiling 6,7
+        (0, 2, 3, 7, 0, 0, NZ_NEG, d),
+        (0, 2, 7, 6, 0, 0, NZ_NEG, d),
+
+        # WEST WALL X=-w, normal +X (inward). Floor 0,3; Ceiling 4,7
+        (0, 3, 0, 4, NX_POS, 0, 0, w),
+        (0, 3, 4, 7, NX_POS, 0, 0, w),
+
+        # EAST WALL X=+w, normal -X (inward). Floor 1,2; Ceiling 5,6
+        (0, 1, 2, 6, NX_NEG, 0, 0, w),
+        (0, 1, 6, 5, NX_NEG, 0, 0, w),
+    ]
     body += struct.pack('<I', len(polys))
-    for surf_type, a, b, c in polys:
-        # type, vIA, vIB, vIC, normalX, normalY, normalZ, dist
-        # normalY = 0x7FFF = +1.0 fixed point, dist = floor_y
+    for surf_type, a, b, c, nx, ny, nz, dist in polys:
         body += struct.pack('<HHHHHHHH',
                             surf_type, a, b, c,
-                            0, 0x7FFF, 0,
-                            (-floor_y) & 0xFFFF)
+                            nx & 0xFFFF, ny & 0xFFFF, nz & 0xFFFF,
+                            dist & 0xFFFF)
 
     # Surface types
     body += struct.pack('<I', 1)
-    body += struct.pack('<II', 0, 0)  # one surface type entry
+    body += struct.pack('<II', 0, 0)
 
-    # Camera data: 1 entry so the camera system doesn't crash on NULL
-    body += struct.pack('<I', 1)      # camDataCount = 1
-    body += struct.pack('<Hh', 0, 0)  # cameraSType=0, numCameras=0
-    body += struct.pack('<i', 0)      # camPosDataIdx = 0
-
-    # Camera position data: 0 entries (factory uses camPosDataZero fallback)
-    body += struct.pack('<i', 0)      # camPosCount = 0
+    # Camera data (1 entry — Camera_Update crashes on NULL)
+    body += struct.pack('<I', 1)
+    body += struct.pack('<Hh', 0, 0)
+    body += struct.pack('<i', 0)
+    body += struct.pack('<i', 0)
 
     # Water boxes
-    body += struct.pack('<i', 0)      # waterBoxCount
+    body += struct.pack('<i', 0)
 
     return header + bytes(body)
 

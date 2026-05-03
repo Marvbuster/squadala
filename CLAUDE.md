@@ -78,7 +78,13 @@ uv run uvicorn livegen.api:app --reload --port 7777   # Dev-Server starten
 | M4 | In-Game UI | Fertig | Squadala Panel, Background-Threading, Gemma 4 via MLX |
 | M5 | Hot-Swap | Fertig | Custom .o2r per Hot-Reload, Resource-Eviction, Scene-Override-Pipeline komplett |
 | M5+ | Custom Geometry | Fertig | Eigene Display Lists rendern! G_VTX_OTR_HASH, OVTX-Vertex-Resources, GbiWrap-Resolution verstanden |
-| M6 | Polish | Ausstehend | Streaming-UI, Debug-Overlay, vollständiger Box-Raum (6 Wände + Boden + Decke) |
+| M5++ | Vollständiger Box-Raum | In Arbeit | 6 Wände + Boden + Decke, korrekte Normals, Z-Buffer an, Spawn-Position aus Custom-Scene |
+| M6 | Lebender Raum | Geplant | OoT-Actors im Custom-Room: Gegner, Pflanzen, Chests, Items, Decoration. ActorPlacer + LLM-Prompt-Erweiterung |
+| M7 | Multi-Room | Geplant | Mehrere Räume verbunden via En_Holl, Layout-Solver, eigene Geometrie pro Raum |
+| M8 | LLM-Mesh-Generation | Geplant | Sidecar generiert Mesh-Daten aus DungeonSpec, prozedurale Patterns, optional ShapeLLM |
+| M9 | Texturen | Geplant | XETO-Textures, G_SETTIMG_OTR_HASH, Tile-Setup, Theme-Atlas |
+| M10 | Polish | Geplant | Streaming-UI, Debug-Overlay, Sound, Custom Lighting, Caching, Save/Load |
+| v1.0 | Custom Dungeon Showcase | Vision | 5-7 Räume + Mini-Boss + Boss + Item-Logik, durchspielbar |
 
 ## Code Rules
 

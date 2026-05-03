@@ -12,10 +12,21 @@ from build_box_room import (
     crc64, CRC64_TABLE,
     build_resource_header, RES_VERTEX, RES_DISPLAY_LIST, RES_ROOM, RES_COLLISION,
     build_vtx_resource, build_display_list, build_room_header, build_collision,
-    build_box_vertices, build_box_faces, build_vertex_colors,
+    build_box_vertices, build_box_faces,
     gfx_le, write_str,
     G_VTX_OTR_HASH, G_RDPPIPESYNC, G_ENDDL, G_TRI2,
 )
+
+
+# build_box_vertices() now returns (verts, colors) as a tuple — wrap for tests
+def _verts_only():
+    verts, _ = build_box_vertices()
+    return verts
+
+
+def _colors_only():
+    _, colors = build_box_vertices()
+    return colors
 
 
 # ============================================================
@@ -117,8 +128,7 @@ class TestResourceHeader:
 
 class TestVertexResource:
     def setup_method(self):
-        self.vertices = build_box_vertices()
-        self.colors = build_vertex_colors()
+        self.vertices, self.colors = build_box_vertices()
         self.vtx = build_vtx_resource(self.vertices, self.colors)
 
     def test_header_present(self):
@@ -131,41 +141,39 @@ class TestVertexResource:
     def test_vertex_count(self):
         """uint32 count at offset 0x40."""
         (count,) = struct.unpack_from('<I', self.vtx, 0x40)
-        assert count == 8
+        assert count == 24
 
     def test_total_size(self):
-        """0x40 header + 4 count + 8 vertices × 16 bytes."""
-        expected = 0x40 + 4 + 8 * 16
+        """0x40 header + 4 count + 24 vertices × 16 bytes."""
+        expected = 0x40 + 4 + 24 * 16
         assert len(self.vtx) == expected
 
-    def test_first_vertex_position(self):
-        """First vertex at (-500, 0, -500)."""
-        off = 0x40 + 4  # after header + count
+    def test_first_vertex_is_floor_corner(self):
+        """First vertex is a floor corner at Y=floor_y (-100)."""
+        off = 0x40 + 4
         x, y, z = struct.unpack_from('<hhh', self.vtx, off)
-        assert (x, y, z) == (-500, 0, -500)
+        assert y == -100  # floor_y
+        # Floor corners are at ±w in X/Z
+        assert abs(x) == abs(z)
 
-    def test_vertex_color(self):
-        """First vertex has green color (100, 200, 100, 255)."""
-        off = 0x40 + 4 + 12  # pos(6) + flag(2) + tc(4) = 12
+    def test_first_vertex_color_is_floor_green(self):
+        """First face is the floor (green tones)."""
+        off = 0x40 + 4 + 12
         r, g, b, a = struct.unpack_from('BBBB', self.vtx, off)
-        assert (r, g, b, a) == (100, 200, 100, 255)
+        # Floor is green-dominant
+        assert g > r and g > b and a == 255
 
-    def test_ceiling_vertex_position(self):
-        """Vertex 4 at (-500, 600, -500)."""
-        off = 0x40 + 4 + 4 * 16  # 4th vertex
-        x, y, z = struct.unpack_from('<hhh', self.vtx, off)
-        assert (x, y, z) == (-500, 600, -500)
-
-    def test_all_vertices_parseable(self):
-        """Read all 8 vertices without error."""
+    def test_all_24_vertices_parseable(self):
+        """Read all 24 vertices without error."""
         base = 0x40 + 4
-        for i in range(8):
+        for i in range(24):
             off = base + i * 16
             x, y, z, flag = struct.unpack_from('<hhhH', self.vtx, off)
             s, t = struct.unpack_from('<hh', self.vtx, off + 8)
             r, g, b, a = struct.unpack_from('BBBB', self.vtx, off + 12)
             assert flag == 0
-            assert s == 0 and t == 0  # no texture coords
+            assert s == 0 and t == 0
+            assert a == 255
 
 
 # ============================================================
@@ -176,7 +184,7 @@ class TestDisplayList:
     def setup_method(self):
         self.vtx_path = "scenes/nonmq/ydan_scene/squadala_box_Vtx"
         self.faces = build_box_faces()
-        self.dl = build_display_list(self.vtx_path, 8, self.faces)
+        self.dl = build_display_list(self.vtx_path, 24, self.faces)
 
     def test_header_type(self):
         (t,) = struct.unpack_from('<I', self.dl, 4)
@@ -219,14 +227,14 @@ class TestDisplayList:
         assert found, "G_VTX_OTR_HASH not found in display list"
 
     def test_vtx_hash_correct_count(self):
-        """G_VTX_OTR_HASH encodes 8 vertices in w0."""
+        """G_VTX_OTR_HASH encodes 24 vertices in w0."""
         off = 0x48
         while off < len(self.dl) - 8:
             (w0,) = struct.unpack_from('<I', self.dl, off)
             opcode = (w0 >> 24) & 0xFF
             if opcode == G_VTX_OTR_HASH:
                 count = (w0 >> 12) & 0xFF
-                assert count == 8
+                assert count == 24
                 break
             off += 8
 
@@ -276,18 +284,19 @@ class TestDisplayList:
 # ============================================================
 
 class TestBoxGeometry:
+    """Box: 24 vertices (4 per face × 6 faces), 12 triangles (2 per face)."""
+
     def test_vertex_count(self):
-        assert len(build_box_vertices()) == 8
+        assert len(_verts_only()) == 24
 
     def test_face_count(self):
         assert len(build_box_faces()) == 12
 
     def test_color_count(self):
-        assert len(build_vertex_colors()) == 8
+        assert len(_colors_only()) == 24
 
     def test_all_face_indices_valid(self):
-        """All face indices reference existing vertices."""
-        n_verts = len(build_box_vertices())
+        n_verts = len(_verts_only())
         for face in build_box_faces():
             for idx in face:
                 assert 0 <= idx < n_verts, f"Invalid vertex index {idx}"
@@ -299,15 +308,20 @@ class TestBoxGeometry:
                 assert idx * 2 < 128, f"Vertex index {idx}*2 exceeds 7-bit range"
 
     def test_faces_use_all_vertices(self):
-        """All 8 vertices are referenced by at least one face."""
         used = set()
         for face in build_box_faces():
             used.update(face)
-        assert used == set(range(8))
+        assert used == set(range(24))
 
     def test_all_colors_have_alpha(self):
-        for r, g, b, a in build_vertex_colors():
+        for r, g, b, a in _colors_only():
             assert a == 255
+
+    def test_six_distinct_face_colors(self):
+        """Each of the 6 faces has its own color (4 vertices share it)."""
+        colors = _colors_only()
+        face_colors = [colors[i * 4] for i in range(6)]
+        assert len(set(face_colors)) == 6, "Each face should have unique color"
 
 
 # ============================================================
@@ -401,20 +415,22 @@ class TestCollision:
         assert t == RES_COLLISION
 
     def test_bounding_box(self):
+        """Box: w=600, h=600, d=600, floor_y=-100 → min(-600,-100,-600), max(600,500,600)."""
         min_x, min_y, min_z = struct.unpack_from('<hhh', self.col, 0x40)
         max_x, max_y, max_z = struct.unpack_from('<hhh', self.col, 0x46)
-        assert (min_x, min_y, min_z) == (-500, 0, -500)
-        assert (max_x, max_y, max_z) == (500, 600, 500)
+        assert (min_x, min_y, min_z) == (-600, -100, -600)
+        assert (max_x, max_y, max_z) == (600, 500, 600)
 
     def test_vertex_count(self):
+        """8 vertices: 4 floor corners + 4 ceiling corners."""
         (count,) = struct.unpack_from('<i', self.col, 0x4C)
-        assert count == 4
+        assert count == 8
 
     def test_polygon_count(self):
-        # After 4 vertices: 0x4C + 4 + 4*6 = 0x4C + 28 = 0x68
-        poly_off = 0x4C + 4 + 4 * 6
+        """12 collision polys: 2 floor + 2 ceiling + 8 wall (4 walls × 2)."""
+        poly_off = 0x4C + 4 + 8 * 6  # after 8 vertices
         (count,) = struct.unpack_from('<I', self.col, poly_off)
-        assert count == 2
+        assert count == 12
 
 
 # ============================================================
@@ -500,7 +516,8 @@ class TestO2RIntegration:
         self.vtx_path = f"{self.target}/squadala_box_Vtx"
         self.dl_path = f"{self.target}/squadala_box_DL"
 
-        self.vtx_resource = build_vtx_resource(build_box_vertices(), build_vertex_colors())
+        verts, colors = build_box_vertices()
+        self.vtx_resource = build_vtx_resource(verts, colors)
         self.dl_resource = build_display_list(self.vtx_path, 8, build_box_faces())
         self.room_header = build_room_header(self.dl_path)
         self.collision = build_collision()
