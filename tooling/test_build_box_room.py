@@ -13,6 +13,7 @@ from build_box_room import (
     build_resource_header, RES_VERTEX, RES_DISPLAY_LIST, RES_ROOM, RES_COLLISION,
     build_vtx_resource, build_display_list, build_room_header, build_collision,
     build_box_vertices, build_box_faces,
+    build_actor_entry, collect_required_objects, ACTOR_LIBRARY, GAMEPLAY_KEEP,
     gfx_le, write_str,
     G_VTX_OTR_HASH, G_RDPPIPESYNC, G_ENDDL, G_TRI2,
 )
@@ -322,6 +323,62 @@ class TestBoxGeometry:
         colors = _colors_only()
         face_colors = [colors[i * 4] for i in range(6)]
         assert len(set(face_colors)) == 6, "Each face should have unique color"
+
+
+# ============================================================
+# Actor Library Tests
+# ============================================================
+
+class TestActorLibrary:
+    def test_pot_known(self):
+        assert "pot" in ACTOR_LIBRARY
+
+    def test_chest_known(self):
+        assert "chest" in ACTOR_LIBRARY
+
+    def test_keese_known(self):
+        assert "keese" in ACTOR_LIBRARY
+
+    def test_actor_entry_size(self):
+        """ActorEntry must be exactly 16 bytes."""
+        entry = build_actor_entry("pot", 100, -90, 200)
+        assert len(entry) == 16
+
+    def test_actor_entry_unknown_raises(self):
+        import pytest
+        with pytest.raises(ValueError):
+            build_actor_entry("unobtainium", 0, 0, 0)
+
+    def test_actor_entry_format(self):
+        """Verify the ActorEntry binary layout: id, posXYZ, rotXYZ, params."""
+        entry = build_actor_entry("pot", 100, -90, 200, rot_y=0x4000, params=0x1234)
+        actor_id, x, y, z, rx, ry, rz, p = struct.unpack('<HhhhhhhH', entry)
+        assert actor_id == 0x0111  # pot
+        assert (x, y, z) == (100, -90, 200)
+        assert (rx, ry, rz) == (0, 0x4000, 0)
+        assert p == 0x1234
+
+    def test_collect_required_objects_includes_gameplay_keep(self):
+        objs = collect_required_objects([])
+        assert GAMEPLAY_KEEP in objs
+
+    def test_collect_required_objects_for_keese(self):
+        """Keese needs OBJ_FIREFLY (0x000D)."""
+        objs = collect_required_objects(["keese"])
+        assert 0x000D in objs
+
+    def test_collect_required_objects_dedup(self):
+        """Same actor twice should only add objects once."""
+        objs1 = collect_required_objects(["pot", "pot", "pot"])
+        objs2 = collect_required_objects(["pot"])
+        assert objs1 == objs2
+
+    def test_collect_required_objects_multi(self):
+        """Mix of actors aggregates all needed objects (verified vs OoT decomp object_table.h)."""
+        objs = collect_required_objects(["pot", "chest", "keese"])
+        assert 0x012C in objs   # OBJECT_TSUBO (NOT 0x0111 — that's the actor id)
+        assert 0x000E in objs   # OBJECT_BOX  (NOT 0x000A — that's the actor id)
+        assert 0x000D in objs   # OBJECT_FIREFLY
 
 
 # ============================================================

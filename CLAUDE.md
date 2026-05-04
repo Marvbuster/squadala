@@ -78,8 +78,10 @@ uv run uvicorn livegen.api:app --reload --port 7777   # Dev-Server starten
 | M4 | In-Game UI | Fertig | Squadala Panel, Background-Threading, Gemma 4 via MLX |
 | M5 | Hot-Swap | Fertig | Custom .o2r per Hot-Reload, Resource-Eviction, Scene-Override-Pipeline komplett |
 | M5+ | Custom Geometry | Fertig | Eigene Display Lists rendern! G_VTX_OTR_HASH, OVTX-Vertex-Resources, GbiWrap-Resolution verstanden |
-| M5++ | Vollständiger Box-Raum | In Arbeit | 6 Wände + Boden + Decke, korrekte Normals, Z-Buffer an, Spawn-Position aus Custom-Scene |
-| M6 | Lebender Raum | Geplant | OoT-Actors im Custom-Room: Gegner, Pflanzen, Chests, Items, Decoration. ActorPlacer + LLM-Prompt-Erweiterung |
+| M5++ | Vollständiger Box-Raum | Fertig | 6 Wände + Boden + Decke, Z-Buffer, Aktoren spawnen, Render-Mode korrekt |
+| M5++/Items | Custom Chest Content | Fertig | Mario in der Kiste mit eigener drawFunc + Custom-Text + Slow-CS — additiv, ohne Vanilla-Override |
+| M5++/Mesh | GLB-Importer | Fertig | trimesh-basierter Universal-Loader (GLB/OBJ/STL/PLY), PBR-baseColorFactor → Per-Face-Color |
+| M6 | Lebender Raum | Teilweise | Aktor-Library + Object-IDs fertig, LLM-Prompt-Erweiterung steht aus |
 | M7 | Multi-Room | Geplant | Mehrere Räume verbunden via En_Holl, Layout-Solver, eigene Geometrie pro Raum |
 | M8 | LLM-Mesh-Generation | Geplant | Sidecar generiert Mesh-Daten aus DungeonSpec, prozedurale Patterns, optional ShapeLLM |
 | M9 | Texturen | Geplant | XETO-Textures, G_SETTIMG_OTR_HASH, Tile-Setup, Theme-Atlas |
