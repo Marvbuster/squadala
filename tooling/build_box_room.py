@@ -112,7 +112,7 @@ def gfx_le(w0: int, w1: int) -> bytes:
 # Box Room Geometry
 # ============================================================
 
-def build_box_vertices(w=600, h=600, d=600):
+def build_box_vertices(w=600, h=600, d=1500):
     """24 vertices for a complete box room — 4 per face, each face has its own color.
 
     Player is INSIDE the box. Normals point inward (CCW winding from inside view).
@@ -423,17 +423,83 @@ def chest_params(chest_type: int = ENBOX_TYPE_BIG_DEFAULT,
     return ((chest_type & 0xF) << 12) | ((item_id & 0x7F) << 5) | (treasure_flag & 0x1F)
 
 
+# Item00 drop variants (En_Item00 params low byte) — see soh/include/z64actor.h::Item00Type
+# These are the items that can lie around on the floor in OoT.
+ITEM00_RUPEE_GREEN     = 0x00
+ITEM00_RUPEE_BLUE      = 0x01
+ITEM00_RUPEE_RED       = 0x02
+ITEM00_HEART           = 0x03
+ITEM00_BOMBS_A         = 0x04
+ITEM00_ARROWS_SINGLE   = 0x05
+ITEM00_HEART_PIECE     = 0x06
+ITEM00_HEART_CONTAINER = 0x07
+ITEM00_ARROWS_SMALL    = 0x08
+ITEM00_ARROWS_MEDIUM   = 0x09
+ITEM00_ARROWS_LARGE    = 0x0A
+ITEM00_BOMBS_B         = 0x0B
+ITEM00_NUTS            = 0x0C
+ITEM00_STICK           = 0x0D
+ITEM00_MAGIC_LARGE     = 0x0E
+ITEM00_MAGIC_SMALL     = 0x0F
+ITEM00_SEEDS           = 0x10
+ITEM00_SMALL_KEY       = 0x11
+ITEM00_FLEXIBLE        = 0x12  # random based on enemy that drops it — unstable for static placement
+ITEM00_RUPEE_ORANGE    = 0x13
+ITEM00_RUPEE_PURPLE    = 0x14
+ITEM00_SHIELD_DEKU     = 0x15
+ITEM00_SHIELD_HYLIAN   = 0x16
+ITEM00_TUNIC_ZORA      = 0x17
+ITEM00_TUNIC_GORON     = 0x18
+ITEM00_BOMBS_SPECIAL   = 0x19
+ITEM00_BOMBCHU         = 0x1A
+
+# Object IDs used by extra actor mappings (sourced from scene_builder.py, not all
+# verified against object_table.h yet — uncertainty marked with "TODO: verify").
+OBJ_ST_GOLD_SKULLTULA = 0x0024  # OBJECT_ST
+OBJ_DODONGO_LIZALFOS   = 0x0054  # OBJECT_DNS / lizalfos? TODO: verify
+OBJ_TITE              = 0x0016  # OBJECT_TITE (tektite/wolfos placeholder?)
+OBJ_FZ                = 0x0157  # OBJECT_FZ (freezard)
+OBJ_RD                = 0x0098  # OBJECT_RD (gibdo/redead)
+OBJ_WALLMASTER        = 0x000B  # OBJECT_WALLMASTER (also floormaster)
+OBJ_RR                = 0x00D4  # OBJECT_RR (like_like)
+OBJ_BB                = 0x005D  # OBJECT_BB (bubble)
+OBJ_AHG               = 0x0107  # OBJECT_AHG (torch_slug? TODO: verify)
+
+
 ACTOR_LIBRARY = {
-    # name             actor_id  default_params      required_objects
-    "pot":            (0x0111,  0x0000,              [OBJ_TSUBO]),
-    "chest":          (0x000A,  chest_params(),      [OBJ_BOX]),     # default: BIG with Heart Piece
-    "keese":          (0x0013,  0x0002,              [OBJ_FIREFLY]),
-    "tektite":        (0x001B,  0x0000,              []),
-    "deku_baba":      (0x0055,  0x0000,              [OBJ_DEKUBABA]),
-    "bush":           (0x0125,  0x0000,              [OBJ_KUSA]),
-    "octorok":        (0x000F,  0x0000,              [OBJ_OKUTA]),
-    "baby_dodongo":   (0x0012,  0x0000,              [OBJ_DODONGO]),
-    "iron_knuckle":   (0x0113,  0x0000,              [OBJ_IK]),
+    # name              actor_id  default_params  required_objects
+    # — Verified in build_box_room work —
+    "pot":             (0x0111,  0x0000,          [OBJ_TSUBO]),
+    "chest":           (0x000A,  chest_params(),  [OBJ_BOX]),     # default: BIG with Heart Piece
+    "keese":           (0x0013,  0x0002,          [OBJ_FIREFLY]),
+    "tektite":         (0x001B,  0x0000,          [OBJ_TITE]),
+    "deku_baba":       (0x0055,  0x0000,          [OBJ_DEKUBABA]),
+    "bush":            (0x0125,  0x0000,          [OBJ_KUSA]),
+    "octorok":         (0x000F,  0x0000,          [OBJ_OKUTA]),
+    "baby_dodongo":    (0x0012,  0x0000,          [OBJ_DODONGO]),
+    "iron_knuckle":    (0x0113,  0x0000,          [OBJ_IK]),
+    # — Item00 drops (En_Item00, ACTOR id 0x0015) — uses gameplay_keep, no extra obj —
+    "item00":          (0x0015,  0x0000,          []),
+    # — Schema-driven enemy mappings ported from scene_builder.py. Object IDs
+    #   are best-effort from the OoT decomp; uncertain ones flagged inline.
+    "skulltula":       (0x0095,  0x0000,          [OBJ_ST_GOLD_SKULLTULA]),
+    "stalfos":         (0x0002,  0x0000,          []),               # gameplay_keep
+    "lizalfos":        (0x0031,  0x0000,          [OBJ_DODONGO_LIZALFOS]),
+    "wolfos":          (0x001B,  0x0000,          [OBJ_TITE]),       # TODO: real wolfos id
+    "white_wolfos":    (0x001B,  0x0001,          [OBJ_TITE]),       # TODO: real wolfos id
+    "freezard":        (0x011A,  0x0000,          [OBJ_FZ]),
+    "dinolfos":        (0x0031,  0x0002,          [OBJ_DODONGO_LIZALFOS]),
+    "gibdo":           (0x0090,  0x0000,          [OBJ_RD]),
+    "redead":          (0x0090,  0x7F01,          [OBJ_RD]),
+    "poe":             (0x000D,  0x0000,          [OBJ_FIREFLY]),    # TODO: verify obj
+    "floormaster":     (0x008E,  0x0000,          [OBJ_WALLMASTER]),
+    "wallmaster":      (0x0011,  0x0000,          [OBJ_WALLMASTER]),
+    "armos":           (0x0023,  0x0000,          []),               # gameplay_dangeon_keep
+    "beamos":          (0x0087,  0x0000,          []),               # gameplay_dangeon_keep
+    "like_like":       (0x00DD,  0x0000,          [OBJ_RR]),
+    "bubble":          (0x0069,  0x0000,          [OBJ_BB]),
+    "torch_slug":      (0x0037,  0x0000,          [OBJ_AHG]),
+    "dodongo":         (0x0012,  0x0000,          [OBJ_DODONGO]),
 }
 
 
@@ -637,7 +703,7 @@ def build_room_header(dl_path: str, actors: list = None,
 # Collision (LOCO) — simple flat floor
 # ============================================================
 
-def build_collision(w=600, h=600, d=600) -> bytes:
+def build_collision(w=600, h=600, d=1500) -> bytes:
     """Complete box collision: floor + 4 walls + ceiling.
 
     Box matches the visual mesh dimensions (w/h/d match build_box_vertices).
@@ -732,7 +798,107 @@ def build_collision(w=600, h=600, d=600) -> bytes:
 # Main — build the .o2r
 # ============================================================
 
-def main():
+# All En_Item00 drop variants that can lie around in OoT — paired with their
+# label for diagnostic logging. ITEM00_FLEXIBLE (0x12) is excluded: it picks a
+# random drop based on the killing enemy and is unstable for static placement.
+ITEM00_SHOWCASE = [
+    (ITEM00_RUPEE_GREEN,     "rupee_green"),
+    (ITEM00_RUPEE_BLUE,      "rupee_blue"),
+    (ITEM00_RUPEE_RED,       "rupee_red"),
+    (ITEM00_RUPEE_ORANGE,    "rupee_orange"),
+    (ITEM00_RUPEE_PURPLE,    "rupee_purple"),
+    (ITEM00_HEART,           "heart"),
+    (ITEM00_HEART_PIECE,     "heart_piece"),
+    (ITEM00_HEART_CONTAINER, "heart_container"),
+    (ITEM00_BOMBS_A,         "bombs_a"),
+    (ITEM00_BOMBS_B,         "bombs_b"),
+    (ITEM00_BOMBS_SPECIAL,   "bombs_special"),
+    (ITEM00_BOMBCHU,         "bombchu"),
+    (ITEM00_ARROWS_SINGLE,   "arrows_single"),
+    (ITEM00_ARROWS_SMALL,    "arrows_small"),
+    (ITEM00_ARROWS_MEDIUM,   "arrows_medium"),
+    (ITEM00_ARROWS_LARGE,    "arrows_large"),
+    (ITEM00_NUTS,            "nuts"),
+    (ITEM00_STICK,           "stick"),
+    (ITEM00_SEEDS,           "seeds"),
+    (ITEM00_MAGIC_LARGE,     "magic_large"),
+    (ITEM00_MAGIC_SMALL,     "magic_small"),
+    (ITEM00_SMALL_KEY,       "small_key"),
+    (ITEM00_SHIELD_DEKU,     "shield_deku"),
+    (ITEM00_SHIELD_HYLIAN,   "shield_hylian"),
+    (ITEM00_TUNIC_GORON,     "tunic_goron"),
+    (ITEM00_TUNIC_ZORA,      "tunic_zora"),
+]
+
+
+def _build_item_row(x: int, z_min: int, z_max: int, y: int = -100) -> list[dict]:
+    """Spread ITEM00_SHOWCASE evenly along Z at the given X line."""
+    n = len(ITEM00_SHOWCASE)
+    out = []
+    if n == 1:
+        out.append({"name": "item00", "x": x, "y": y, "z": (z_min + z_max) // 2,
+                    "params": ITEM00_SHOWCASE[0][0]})
+        return out
+    step = (z_max - z_min) / (n - 1)
+    for i, (variant, _label) in enumerate(ITEM00_SHOWCASE):
+        z = int(z_min + i * step)
+        out.append({"name": "item00", "x": x, "y": y, "z": z, "params": variant})
+    return out
+
+
+# DEFAULT_ACTORS — the standalone debug-room layout the tooling/ CLI emits.
+# Box dimensions are 1200 (X) × 600 (Y) × 3000 (Z) with Z as the long axis,
+# so we keep the existing chest+pots+deku-babas in the original cluster
+# and add a row of En_Item00 showcase drops along the new long Z axis.
+DEFAULT_ACTORS = [
+    # 4 pots at the corners of the original 800×800 footprint.
+    {"name": "pot", "x": -400, "y": -100, "z": -400},
+    {"name": "pot", "x":  400, "y": -100, "z": -400},
+    {"name": "pot", "x":  400, "y": -100, "z":  400},
+    {"name": "pot", "x": -400, "y": -100, "z":  400},
+    # Big chest with Mario reward at the centre — params filled at runtime.
+    {"name": "chest", "x": 0, "y": -100, "z": 0, "rot_y": 0x8000, "params": None},
+    # Three Deku Babas south-of-centre.
+    {"name": "deku_baba", "x": -300, "y": -100, "z": -100},
+    {"name": "deku_baba", "x":  300, "y": -100, "z": -100},
+    {"name": "deku_baba", "x":    0, "y": -100, "z": -350},
+]
+
+
+def _resolve_default_actors() -> list[dict]:
+    """Materialise DEFAULT_ACTORS — fills in chest params, appends item showcase row."""
+    out: list[dict] = []
+    for a in DEFAULT_ACTORS:
+        a = dict(a)
+        if a.get("name") == "chest" and a.get("params") is None:
+            a["params"] = chest_params(item_id=GI_LIVEGEN_MARIO, treasure_flag=1)
+        out.append(a)
+    # Showcase row on the west side (x=-300), spread along the long Z axis.
+    out.extend(_build_item_row(x=-300, z_min=-1300, z_max=1300))
+    return out
+
+
+def build_dungeon_o2r(
+    output_path: Path | str,
+    actors: list[dict] | None = None,
+    *,
+    include_mario_dl: bool = True,
+    include_pizza_dl: bool = True,
+) -> Path:
+    """Build a custom box-room .o2r with the given actors.
+
+    Pipeline-callable entry point used by both the standalone tooling main()
+    and the sidecar compiler bridge (livegen.compiler.box_room_dungeon).
+
+    Args:
+        output_path: where to write the .o2r
+        actors: list of actor dicts in the format consumed by build_room_header
+                (keys: name + x/y/z + optional rot_y + optional params).
+                Falls back to a built-in test layout when None.
+        include_mario_dl: pack Mario VTX/DL into the .o2r so the in-game custom
+                chest drawFunc can resolve it via __OTR__ paths.
+        include_pizza_dl: pack Pizza VTX/DL for the spinning decoration hook.
+    """
     from obj_to_dl import parse_obj
     from mesh_to_dl import load_mesh
 
@@ -746,83 +912,62 @@ def main():
     # drop-zone (raw deliveries) and must never be referenced from build code.
     ASSETS_3D = Path(__file__).parent / "assets" / "3d"
 
-    # Mario stays in the .o2r as the chest's custom GetItem visual (rendered by
-    # Player_DrawGetItemImpl via our LiveGen_DrawMarioItem drawFunc).
     MARIO_OBJ = ASSETS_3D / "super_mario" / "model.obj"
     MARIO_VTX_PATH = f"{TARGET}/squadala_mario_Vtx"
     MARIO_DL_PATH = f"{TARGET}/squadala_mario_DL"
 
-    # Pizza is the spinning showcase decoration above the chest. GLB import via
-    # trimesh; tilted ~30° from horizontal so it's visibly not flat as it rotates.
     PIZZA_GLB = ASSETS_3D / "pizza.glb"
     PIZZA_VTX_PATH = f"{TARGET}/squadala_pizza_Vtx"
     PIZZA_DL_PATH = f"{TARGET}/squadala_pizza_DL"
 
+    if actors is None:
+        actors = _resolve_default_actors()
+
     vertices, colors = build_box_vertices()
     faces = build_box_faces()
-
-    # Test actors: pots, chest with Heart Piece, deku babas (piranha plants)
-    actors = [
-        {"name": "pot", "x": -400, "y": -100, "z": -400},
-        {"name": "pot", "x":  400, "y": -100, "z": -400},
-        {"name": "pot", "x":  400, "y": -100, "z":  400},
-        {"name": "pot", "x": -400, "y": -100, "z":  400},
-        {"name": "chest", "x": 0, "y": -100, "z": 0, "rot_y": 0x8000,
-         "params": chest_params(item_id=GI_LIVEGEN_MARIO, treasure_flag=1)},
-        # Deku Babas — bite if Link gets close, but stay rooted
-        {"name": "deku_baba", "x": -300, "y": -100, "z": -100},
-        {"name": "deku_baba", "x":  300, "y": -100, "z": -100},
-        {"name": "deku_baba", "x":    0, "y": -100, "z": -350},
-    ]
 
     vtx_resource = build_vtx_resource(vertices, colors)
     dl_resource = build_display_list(VTX_PATH, len(vertices), faces)
 
-    # Build Mario — scale=200 (~250 units high), origin centered for rotation.
-    # Mario is NOT a standalone scene decoration anymore; the chest's custom
-    # GetItem drawFunc (LiveGen_DrawMarioItem in soh) renders this DL above
-    # Link's head when the chest is opened. Y-centering keeps the rotation
-    # axis clean (Mario raw center Y ≈ -0.175 → scaled center -35 → offset +35).
-    mario = parse_obj(MARIO_OBJ, scale=200.0, y_offset=35.0, rotation_y_degrees=0.0)
-    mario_verts = [(v[0], v[1], v[2]) for v in mario.vertices]
-    mario_colors = [(v[3], v[4], v[5], v[6]) for v in mario.vertices]
-    mario_vtx = build_vtx_resource(mario_verts, mario_colors)
-    mario_dl = build_unindexed_dl(MARIO_VTX_PATH, len(mario.triangles))
-    print(f"Mario: {len(mario.vertices)} verts, {len(mario.triangles)} tris → "
-          f"VTX {len(mario_vtx)}B, DL {len(mario_dl)}B")
+    mario_vtx = mario_dl = pizza_vtx = pizza_dl = None
+    if include_mario_dl:
+        mario = parse_obj(MARIO_OBJ, scale=200.0, y_offset=35.0, rotation_y_degrees=0.0)
+        mario_verts = [(v[0], v[1], v[2]) for v in mario.vertices]
+        mario_colors = [(v[3], v[4], v[5], v[6]) for v in mario.vertices]
+        mario_vtx = build_vtx_resource(mario_verts, mario_colors)
+        mario_dl = build_unindexed_dl(MARIO_VTX_PATH, len(mario.triangles))
+        print(f"Mario: {len(mario.vertices)} verts, {len(mario.triangles)} tris → "
+              f"VTX {len(mario_vtx)}B, DL {len(mario_dl)}B")
 
-    # Build Pizza — trimesh-based GLB import. Native size ~0.034 wide → scale
-    # 14000 gives ~480 units (down 30% from the original 680). Tilt -60° around
-    # X so the disc is visibly not flat as it spins, with the top side facing
-    # up-forward (positive 60° put the top side facing down-forward).
-    pizza = load_mesh(
-        PIZZA_GLB,
-        scale=14000.0,
-        y_offset=0.0,
-        rotation_deg=(-60.0, 0.0, 0.0),
-    )
-    pizza_verts = [(v[0], v[1], v[2]) for v in pizza.vertices]
-    pizza_colors = [(v[3], v[4], v[5], v[6]) for v in pizza.vertices]
-    pizza_vtx = build_vtx_resource(pizza_verts, pizza_colors)
-    pizza_dl = build_unindexed_dl(PIZZA_VTX_PATH, len(pizza.triangles))
-    print(f"Pizza: {len(pizza.vertices)} verts, {len(pizza.triangles)} tris → "
-          f"VTX {len(pizza_vtx)}B, DL {len(pizza_dl)}B")
+    if include_pizza_dl:
+        pizza = load_mesh(
+            PIZZA_GLB,
+            scale=14000.0,
+            y_offset=0.0,
+            rotation_deg=(-60.0, 0.0, 0.0),
+        )
+        pizza_verts = [(v[0], v[1], v[2]) for v in pizza.vertices]
+        pizza_colors = [(v[3], v[4], v[5], v[6]) for v in pizza.vertices]
+        pizza_vtx = build_vtx_resource(pizza_verts, pizza_colors)
+        pizza_dl = build_unindexed_dl(PIZZA_VTX_PATH, len(pizza.triangles))
+        print(f"Pizza: {len(pizza.vertices)} verts, {len(pizza.triangles)} tris → "
+              f"VTX {len(pizza_vtx)}B, DL {len(pizza_dl)}B")
 
-    # Neither Mario nor Pizza are in the Room SetMesh — they're drawn by C++
-    # hooks that resolve __OTR__ paths and apply transforms at draw time.
     room_header = build_room_header(DL_PATH, actors=actors)
     collision = build_collision()
     scene_header = build_scene_header(ROOM_PATH, COLLISION_PATH, len(room_header))
 
-    output = Path.home() / "workspace/SoH/soh-source/build-cmake/soh/debug_rooms/zzz_squadala_dungeon.o2r"
+    output = Path(output_path)
     output.parent.mkdir(parents=True, exist_ok=True)
 
     with zipfile.ZipFile(str(output), 'w', zipfile.ZIP_STORED) as oz:
         oz.writestr(VTX_PATH, vtx_resource)
-        oz.writestr(MARIO_VTX_PATH, mario_vtx)
-        oz.writestr(MARIO_DL_PATH, mario_dl)
-        oz.writestr(PIZZA_VTX_PATH, pizza_vtx)
-        oz.writestr(PIZZA_DL_PATH, pizza_dl)
+        if mario_vtx is not None:
+            oz.writestr(MARIO_VTX_PATH, mario_vtx)
+            oz.writestr(MARIO_DL_PATH, mario_dl)
+        if pizza_vtx is not None:
+            oz.writestr(PIZZA_VTX_PATH, pizza_vtx)
+            oz.writestr(PIZZA_DL_PATH, pizza_dl)
         oz.writestr(DL_PATH, dl_resource)
         oz.writestr(ROOM_PATH, room_header)
         oz.writestr(COLLISION_PATH, collision)
@@ -832,6 +977,14 @@ def main():
         print(f"VTX: {len(vtx_resource)}B | Collision: {len(collision)}B")
 
     print(f"Output: {output} ({output.stat().st_size} bytes)")
+    print(f"Actors: {len(actors)} | Mario DL: {include_mario_dl} | Pizza DL: {include_pizza_dl}")
+    return output
+
+
+def main():
+    """Standalone CLI — builds the test box room with the default actor layout."""
+    output = Path.home() / "workspace/SoH/soh-source/build-cmake/soh/debug_rooms/zzz_squadala_dungeon.o2r"
+    build_dungeon_o2r(output, actors=None)
     print("Complete override: Scene + Room + DL + VTX + Collision")
 
 

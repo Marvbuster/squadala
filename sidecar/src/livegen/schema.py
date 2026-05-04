@@ -80,6 +80,10 @@ class ChestContent(str, Enum):
     rupees_50 = "rupees_50"
     recovery_heart = "recovery_heart"
     piece_of_heart = "piece_of_heart"
+    # LiveGen Custom Chest Content — registered additively in soh-fork
+    # (LiveGenItemRegistry.cpp). Spawning Mario via this enum value flows
+    # through to the Custom drawFunc + custom textbox + slow-CS hook.
+    livegen_mario = "livegen_mario"
 
 
 # ---------------------------------------------------------------------------

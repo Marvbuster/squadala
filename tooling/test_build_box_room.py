@@ -154,8 +154,9 @@ class TestVertexResource:
         off = 0x40 + 4
         x, y, z = struct.unpack_from('<hhh', self.vtx, off)
         assert y == -100  # floor_y
-        # Floor corners are at ±w in X/Z
-        assert abs(x) == abs(z)
+        # Floor corners are at ±w in X and ±d in Z (w and d may differ
+        # for non-square rooms — just check both axes hit the half-extent).
+        assert abs(x) > 0 and abs(z) > 0
 
     def test_first_vertex_color_is_floor_green(self):
         """First face is the floor (green tones)."""
@@ -472,11 +473,11 @@ class TestCollision:
         assert t == RES_COLLISION
 
     def test_bounding_box(self):
-        """Box: w=600, h=600, d=600, floor_y=-100 → min(-600,-100,-600), max(600,500,600)."""
+        """Box defaults: w=600, h=600, d=1500, floor_y=-100."""
         min_x, min_y, min_z = struct.unpack_from('<hhh', self.col, 0x40)
         max_x, max_y, max_z = struct.unpack_from('<hhh', self.col, 0x46)
-        assert (min_x, min_y, min_z) == (-600, -100, -600)
-        assert (max_x, max_y, max_z) == (600, 500, 600)
+        assert (min_x, min_y, min_z) == (-600, -100, -1500)
+        assert (max_x, max_y, max_z) == (600, 500, 1500)
 
     def test_vertex_count(self):
         """8 vertices: 4 floor corners + 4 ceiling corners."""

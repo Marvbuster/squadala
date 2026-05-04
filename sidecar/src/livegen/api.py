@@ -18,11 +18,24 @@ from livegen.llm import create_backend
 from livegen.schema import GenerationResult
 from livegen.dungeon_store import DungeonStore
 
-app = FastAPI(title="LiveGen Sidecar", version="0.3.0")
+app = FastAPI(title="LiveGen Sidecar", version="0.5.0")
 
 _sessions: dict[str, Session] = {}
 _agent = DungeonAgent(backend=create_backend())
 _store = DungeonStore()
+
+
+def _detect_mods_path() -> str | None:
+    """Auto-detect a SoH mods directory among the usual install locations."""
+    import os
+    candidates = [
+        os.path.expanduser("~/workspace/SoH/soh-source/build-cmake/soh/mods"),
+        os.path.expanduser("~/Library/Application Support/com.shipofharkinian.soh/mods"),
+    ]
+    for c in candidates:
+        if os.path.isdir(c):
+            return c
+    return None
 
 
 class CreateSessionRequest(BaseModel):
@@ -107,27 +120,16 @@ def compile_dungeon(req: CompileRequest):
     if not session.result:
         raise HTTPException(status_code=409, detail="No dungeon spec to compile")
 
-    from livegen.compiler.scene_builder import build_dungeon_o2r
+    from livegen.compiler.box_room_dungeon import build_dungeon_o2r
 
-    # Auto-detect mods path
-    mods_path = req.mods_path
-    if not mods_path:
-        import os
-        # Try common SoH mod paths
-        candidates = [
-            os.path.expanduser("~/workspace/SoH/soh-source/build-cmake/soh/mods"),
-            os.path.expanduser("~/Library/Application Support/com.shipofharkinian.soh/mods"),
-        ]
-        for c in candidates:
-            if os.path.isdir(c):
-                mods_path = c
-                break
-
+    mods_path = req.mods_path or _detect_mods_path()
     if not mods_path:
         raise HTTPException(status_code=500, detail="Could not find SoH mods folder")
 
     try:
-        output_path = build_dungeon_o2r(session.result, Path(mods_path))
+        output_path = build_dungeon_o2r(
+            session.result, Path(mods_path) / "zzz_squadala_dungeon.o2r"
+        )
         return JSONResponse(content={
             "status": "compiled",
             "path": str(output_path),
@@ -155,26 +157,16 @@ def activate_dungeon(dungeon_id: str):
     if not dungeon:
         raise HTTPException(status_code=404, detail="Dungeon not found")
 
-    from livegen.compiler.scene_builder import build_dungeon_o2r
+    from livegen.compiler.box_room_dungeon import build_dungeon_o2r
     from livegen.schema import DungeonSpec
 
     spec = DungeonSpec.model_validate(dungeon.spec)
 
-    # Find mods path
-    import os
-    mods_path = None
-    for c in [
-        os.path.expanduser("~/workspace/SoH/soh-source/build-cmake/soh/mods"),
-        os.path.expanduser("~/Library/Application Support/com.shipofharkinian.soh/mods"),
-    ]:
-        if os.path.isdir(c):
-            mods_path = c
-            break
-
+    mods_path = _detect_mods_path()
     if not mods_path:
         raise HTTPException(status_code=500, detail="Mods folder not found")
 
-    output = build_dungeon_o2r(spec, Path(mods_path))
+    output = build_dungeon_o2r(spec, Path(mods_path) / "zzz_squadala_dungeon.o2r")
     _store.set_active(dungeon_id)
     _store.mark_compiled(dungeon_id)
 

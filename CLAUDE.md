@@ -81,7 +81,7 @@ uv run uvicorn livegen.api:app --reload --port 7777   # Dev-Server starten
 | M5++ | Vollständiger Box-Raum | Fertig | 6 Wände + Boden + Decke, Z-Buffer, Aktoren spawnen, Render-Mode korrekt |
 | M5++/Items | Custom Chest Content | Fertig | Mario in der Kiste mit eigener drawFunc + Custom-Text + Slow-CS — additiv, ohne Vanilla-Override |
 | M5++/Mesh | GLB-Importer | Fertig | trimesh-basierter Universal-Loader (GLB/OBJ/STL/PLY), PBR-baseColorFactor → Per-Face-Color |
-| M6 | Lebender Raum | Teilweise | Aktor-Library + Object-IDs fertig, LLM-Prompt-Erweiterung steht aus |
+| M6 | Lebender Raum | Fertig | Spec-Bridge `box_room_dungeon` mappt LLM-DungeonSpec auf Custom-Geometry-`.o2r` mit allen 21 ActorTypes; 26 En_Item00-Drops als Showcase im Debug-Raum |
 | M7 | Multi-Room | Geplant | Mehrere Räume verbunden via En_Holl, Layout-Solver, eigene Geometrie pro Raum |
 | M8 | LLM-Mesh-Generation | Geplant | Sidecar generiert Mesh-Daten aus DungeonSpec, prozedurale Patterns, optional ShapeLLM |
 | M9 | Texturen | Geplant | XETO-Textures, G_SETTIMG_OTR_HASH, Tile-Setup, Theme-Atlas |

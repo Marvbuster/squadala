@@ -23,7 +23,7 @@ SCHEMA_SHAPE = """\
       "name": "string (lowercase, underscores, e.g. 'entrance_hall')",
       "template": "small_chamber_2exit|small_chamber_3exit|corridor_straight|corridor_l_bend|large_hall_4exit|block_push_room|pit_room|lava_bridge_room|water_room|boss_arena",
       "enemies": [{"type": "keese|skulltula|stalfos|lizalfos|wolfos|white_wolfos|freezard|iron_knuckle|dinolfos|gibdo|redead|poe|floormaster|wallmaster|armos|beamos|like_like|bubble|torch_slug|dodongo|tektite", "count": 1}],
-      "chests": ["small_key|boss_key|map|compass|arrows_10|bombs_5|rupees_20|recovery_heart|piece_of_heart"]
+      "chests": ["small_key|boss_key|map|compass|arrows_10|bombs_5|rupees_20|recovery_heart|piece_of_heart|livegen_mario"]
     }
   ],
   "connections": [

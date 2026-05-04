@@ -10,6 +10,7 @@
 
 | Version | Sidecar | SoH-Fork | Status |
 |---------|---------|----------|--------|
+| v0.6 | Build 1 | Build 1 | Abgeschlossen — M6 Lebender Raum (Spec-Bridge) + Items-Showcase im längeren Debug-Raum |
 | v0.5 | Build 1 | Build 1 | Abgeschlossen — Vollständiger Box-Raum + Custom Chest Content + GLB-Importer |
 | v0.4 | Build 1 | Build 1 | Abgeschlossen — Custom 3D Geometry rendert! |
 | v0.3 | Build 1 | Build 1 | Abgeschlossen |
