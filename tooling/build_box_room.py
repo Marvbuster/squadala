@@ -115,7 +115,64 @@ def gfx_le(w0: int, w1: int) -> bytes:
 FACE_NAMES = ["floor", "ceiling", "north", "south", "west", "east"]
 
 
-def build_box_vertices(w=600, h=600, d=1500, offset=(0, 0, 0), skip_walls=None):
+def _door_wall_panels(face: str, w: int, d: int, floor_y: int, ceiling_y: int,
+                       door: dict) -> list[list[tuple[int, int, int]]]:
+    """Three quads that replace the full east or west wall, leaving a centred
+    door-shaped hole at z=0.
+
+    `door` keys: half_width (z extent of the hole / 2), height (y extent of the
+    hole, measured from floor_y).
+
+    Each returned quad is a list of 4 vertices in the same CCW winding the
+    full wall would use, so the inward-facing normal stays consistent.
+    """
+    half = door["half_width"]
+    door_top = floor_y + door["height"]
+    panels: list[list[tuple[int, int, int]]] = []
+
+    if face == "east":
+        x = w
+        # Original east winding: (x, y_low, z_back) → (x, y_low, z_front) →
+        #                        (x, y_high, z_front) → (x, y_high, z_back)
+        # Above panel (top strip across the full width).
+        panels.append([
+            (x, door_top, -d), (x, door_top,  d),
+            (x, ceiling_y,  d), (x, ceiling_y, -d),
+        ])
+        # Flank towards +Z (between hole and z=+d).
+        panels.append([
+            (x, floor_y, half), (x, floor_y, d),
+            (x, door_top, d), (x, door_top, half),
+        ])
+        # Flank towards -Z (between z=-d and hole).
+        panels.append([
+            (x, floor_y, -d), (x, floor_y, -half),
+            (x, door_top, -half), (x, door_top, -d),
+        ])
+    elif face == "west":
+        x = -w
+        # Original west winding: (x, y_low, z_front) → (x, y_low, z_back) →
+        #                        (x, y_high, z_back) → (x, y_high, z_front)
+        panels.append([
+            (x, door_top,  d), (x, door_top, -d),
+            (x, ceiling_y, -d), (x, ceiling_y,  d),
+        ])
+        panels.append([
+            (x, floor_y, d), (x, floor_y, half),
+            (x, door_top, half), (x, door_top, d),
+        ])
+        panels.append([
+            (x, floor_y, -half), (x, floor_y, -d),
+            (x, door_top, -d), (x, door_top, -half),
+        ])
+    else:
+        raise ValueError(f"door panels only supported for east/west walls, got {face!r}")
+
+    return panels
+
+
+def build_box_vertices(w=600, h=600, d=1500, offset=(0, 0, 0), skip_walls=None,
+                        doors=None):
     """Vertices for a box room — 4 per face, each face has its own color.
 
     Player is INSIDE the box. Normals point inward (CCW winding from inside view).
@@ -126,12 +183,17 @@ def build_box_vertices(w=600, h=600, d=1500, offset=(0, 0, 0), skip_walls=None):
         offset: (ox, oy, oz) world translation applied to every vertex.
         skip_walls: optional set of face names to omit (e.g. {"east"} for an
                     open shared boundary in multi-room layouts).
+        doors: optional dict {face: {"half_width": int, "height": int}} —
+                replaces the named east/west wall with three panel quads
+                (above + two flanks) leaving a centred door-shaped hole.
+                Takes precedence over skip_walls for the same face.
 
     Returns:
         (verts, colors, n_faces) — n_faces is the number of emitted face quads
         (used by build_box_faces to know how many tri-pairs to generate).
     """
     skip_walls = skip_walls or set()
+    doors = doors or {}
     ox, oy, oz = offset
     floor_y = -100 + oy
     ceiling_y = floor_y + h
@@ -158,9 +220,22 @@ def build_box_vertices(w=600, h=600, d=1500, offset=(0, 0, 0), skip_walls=None):
     colors: list[tuple[int, int, int, int]] = []
     n_faces = 0
     for name in FACE_NAMES:
+        col = palette[name]
+
+        # Door panels (3 quads with a centred hole) replace the full wall when
+        # the face is in `doors`. This wins over skip_walls so callers can pass
+        # both — the door spec is more specific.
+        if name in doors and name in ("east", "west"):
+            for panel in _door_wall_panels(name, w, d, floor_y, ceiling_y, doors[name]):
+                for vx, vy, vz in panel:
+                    verts.append((vx + ox, vy, vz + oz))
+                    colors.append(col)
+                n_faces += 1
+            continue
+
         if name in skip_walls:
             continue
-        col = palette[name]
+
         for vx, vy, vz in face_quads[name]:
             verts.append((vx + ox, vy, vz + oz))
             colors.append(col)
@@ -912,6 +987,9 @@ def build_dungeon_o2r(
         - "skip_walls": optional set of face names ("east"/"west"/...) that
                          this room should NOT render — used for the shared
                          boundary between adjacent rooms.
+        - "doors":      optional dict {face: {"half_width", "height"}} — wall
+                         renders with a centred door-shaped hole instead of
+                         being skipped or fully solid.
 
     `actors` is ignored when `rooms` is provided.
 
@@ -979,6 +1057,7 @@ def build_dungeon_o2r(
         room_actors = room_cfg.get("actors", [])
         offset = room_cfg.get("offset", (0, 0, 0))
         skip_walls = room_cfg.get("skip_walls", set())
+        doors = room_cfg.get("doors", {})
         total_actors += len(room_actors)
 
         vtx_path = f"{TARGET}/squadala_room{i}_Vtx"
@@ -986,7 +1065,9 @@ def build_dungeon_o2r(
         room_path = f"{TARGET}/ydan_room_{i}"
         room_paths.append(room_path)
 
-        verts, cols, n_faces = build_box_vertices(offset=offset, skip_walls=skip_walls)
+        verts, cols, n_faces = build_box_vertices(
+            offset=offset, skip_walls=skip_walls, doors=doors,
+        )
         faces = build_box_faces(n_faces)
         vtx_res = build_vtx_resource(verts, cols)
         dl_res = build_display_list(vtx_path, len(verts), faces)
@@ -1040,20 +1121,21 @@ def main():
         print("Complete override: Scene + Room + DL + VTX + Collision (single)")
         return
 
-    # M7 step-1: two box rooms aligned along +X. Room 0 keeps the v0.6 actor
-    # layout (Mario chest, pots, deku babas, item showcase). Room 1 is empty
-    # for now — we just want to confirm the shared boundary renders correctly
-    # and the second room's geometry shows up.
+    # M7 step-2: two box rooms aligned along +X with a door-shaped hole in
+    # the shared wall. Both rooms render their adjacent wall as three panels
+    # (above + two flanks) leaving a 120-wide × 200-tall opening at z=0. No
+    # transition actor yet — the hole is purely cosmetic + collision-passable.
+    DOOR_SPEC = {"half_width": 60, "height": 200}
     rooms = [
         {
             "actors": _resolve_default_actors(),
             "offset": (0, 0, 0),
-            "skip_walls": {"east"},      # shared boundary at x=+600
+            "doors": {"east": DOOR_SPEC},  # shared boundary at x=+600
         },
         {
             "actors": [],
-            "offset": (1200, 0, 0),       # 2*w east of room 0 → walls coincide at x=+600
-            "skip_walls": {"west"},
+            "offset": (1200, 0, 0),         # 2*w east of room 0 → walls coincide at x=+600
+            "doors": {"west": DOOR_SPEC},
         },
     ]
     build_dungeon_o2r(output, rooms=rooms)
