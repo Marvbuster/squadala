@@ -112,68 +112,74 @@ def gfx_le(w0: int, w1: int) -> bytes:
 # Box Room Geometry
 # ============================================================
 
-def build_box_vertices(w=600, h=600, d=1500):
-    """24 vertices for a complete box room — 4 per face, each face has its own color.
+FACE_NAMES = ["floor", "ceiling", "north", "south", "west", "east"]
+
+
+def build_box_vertices(w=600, h=600, d=1500, offset=(0, 0, 0), skip_walls=None):
+    """Vertices for a box room — 4 per face, each face has its own color.
 
     Player is INSIDE the box. Normals point inward (CCW winding from inside view).
     With G_CULL_BACK enabled, only inward-facing triangles render.
+
+    Args:
+        w, h, d: half-extents in X, Y, Z. Box spans (-w..w, floor..floor+h, -d..d).
+        offset: (ox, oy, oz) world translation applied to every vertex.
+        skip_walls: optional set of face names to omit (e.g. {"east"} for an
+                    open shared boundary in multi-room layouts).
+
+    Returns:
+        (verts, colors, n_faces) — n_faces is the number of emitted face quads
+        (used by build_box_faces to know how many tri-pairs to generate).
     """
-    floor_y = -100   # matches collision floor
+    skip_walls = skip_walls or set()
+    ox, oy, oz = offset
+    floor_y = -100 + oy
     ceiling_y = floor_y + h
-    verts = []
-    colors = []
 
-    # 6 faces × 4 vertices each = 24 vertices total
-    # Per face: (v0, v1, v2, v3) defines a quad, split into 2 tris later
-    # Vertex order matters for inward-facing normals
-    face_data = [
-        # FLOOR (Y=floor_y, normal +Y)
-        # Looking from above (inside): CCW order is BL, BR, TR, TL
-        [(-w, floor_y,  d), ( w, floor_y,  d), ( w, floor_y, -d), (-w, floor_y, -d),
-         (60, 180, 60, 255)],   # green floor
+    # Local-space face quads (CCW from inside) and their colors.
+    face_quads = {
+        "floor":   [(-w, floor_y,  d), ( w, floor_y,  d), ( w, floor_y, -d), (-w, floor_y, -d)],
+        "ceiling": [(-w, ceiling_y, -d), ( w, ceiling_y, -d), ( w, ceiling_y,  d), (-w, ceiling_y,  d)],
+        "north":   [(-w, floor_y, -d), ( w, floor_y, -d), ( w, ceiling_y, -d), (-w, ceiling_y, -d)],
+        "south":   [( w, floor_y,  d), (-w, floor_y,  d), (-w, ceiling_y,  d), ( w, ceiling_y,  d)],
+        "west":    [(-w, floor_y,  d), (-w, floor_y, -d), (-w, ceiling_y, -d), (-w, ceiling_y,  d)],
+        "east":    [( w, floor_y, -d), ( w, floor_y,  d), ( w, ceiling_y,  d), ( w, ceiling_y, -d)],
+    }
+    palette = {
+        "floor":   (60, 180, 60, 255),
+        "ceiling": (180, 60, 60, 255),
+        "north":   (60, 100, 220, 255),
+        "south":   (220, 200, 60, 255),
+        "west":    (60, 200, 200, 255),
+        "east":    (200, 60, 200, 255),
+    }
 
-        # CEILING (Y=ceiling_y, normal -Y)
-        # Looking from below (inside): CCW order opposite of floor
-        [(-w, ceiling_y, -d), ( w, ceiling_y, -d), ( w, ceiling_y,  d), (-w, ceiling_y,  d),
-         (180, 60, 60, 255)],   # red ceiling
+    verts: list[tuple[int, int, int]] = []
+    colors: list[tuple[int, int, int, int]] = []
+    n_faces = 0
+    for name in FACE_NAMES:
+        if name in skip_walls:
+            continue
+        col = palette[name]
+        for vx, vy, vz in face_quads[name]:
+            verts.append((vx + ox, vy, vz + oz))
+            colors.append(col)
+        n_faces += 1
 
-        # NORTH WALL (Z=-d, normal +Z, inward)
-        # From inside looking north: BL=(-w,bottom,-d), BR=(w,bottom,-d), TR=(w,top,-d), TL=(-w,top,-d)
-        [(-w, floor_y, -d), ( w, floor_y, -d), ( w, ceiling_y, -d), (-w, ceiling_y, -d),
-         (60, 100, 220, 255)],  # blue north wall
-
-        # SOUTH WALL (Z=+d, normal -Z, inward)
-        [( w, floor_y,  d), (-w, floor_y,  d), (-w, ceiling_y,  d), ( w, ceiling_y,  d),
-         (220, 200, 60, 255)],  # yellow south wall
-
-        # WEST WALL (X=-w, normal +X, inward)
-        [(-w, floor_y,  d), (-w, floor_y, -d), (-w, ceiling_y, -d), (-w, ceiling_y,  d),
-         (60, 200, 200, 255)],  # cyan west wall
-
-        # EAST WALL (X=+w, normal -X, inward)
-        [( w, floor_y, -d), ( w, floor_y,  d), ( w, ceiling_y,  d), ( w, ceiling_y, -d),
-         (200, 60, 200, 255)],  # magenta east wall
-    ]
-
-    for v0, v1, v2, v3, col in face_data:
-        verts.extend([v0, v1, v2, v3])
-        colors.extend([col, col, col, col])
-
-    return verts, colors
+    return verts, colors, n_faces
 
 
-def build_box_faces():
-    """12 triangles (6 quads × 2 tris). Each quad uses 4 dedicated vertices.
+def build_box_faces(n_faces: int = 6):
+    """2 triangles per face quad. Quad winding (v0, v1, v2, v3) is CCW from inside.
 
-    Quad winding (v0, v1, v2, v3) is CCW from inside the room.
-    Split into triangles: (v0, v1, v2) and (v0, v2, v3).
+    Splits each quad into (v0, v1, v2) and (v0, v2, v3).
     """
     faces = []
-    for face_idx in range(6):
+    for face_idx in range(n_faces):
         base = face_idx * 4
         v0, v1, v2, v3 = base, base + 1, base + 2, base + 3
-        faces.append((v0, v1, v2))  # first triangle of quad
-        faces.append((v0, v2, v3))  # second triangle of quad
+        faces.append((v0, v1, v2))
+        faces.append((v0, v2, v3))
     return faces
 
 
@@ -551,9 +557,18 @@ def write_str(s: str) -> bytes:
     return struct.pack('<I', len(b)) + b
 
 
-def build_scene_header(room_path: str, collision_path: str, room_size: int = 0x100) -> bytes:
-    """Build a minimal Scene that has 1 room, no transition actors, our collision."""
+def build_scene_header(room_path, collision_path: str, room_size: int = 0x100) -> bytes:
+    """Build a Scene that references one or more rooms.
+
+    Args:
+        room_path: a single string (single-room scene) OR a list of strings
+                   (multi-room scene). RoomList emits one entry per path.
+    """
     header = build_resource_header(RES_ROOM)  # Scene uses same MORO type
+
+    rooms = [room_path] if isinstance(room_path, str) else list(room_path)
+    if not rooms:
+        raise ValueError("scene must reference at least one room")
 
     cmds = bytearray()
     n = 0
@@ -563,11 +578,12 @@ def build_scene_header(room_path: str, collision_path: str, room_size: int = 0x1
     cmds += bytes([3, 0x13, 0x1C])
     n += 1
 
-    # RoomList (ID=4): just 1 room
+    # RoomList (ID=4): one RomFile entry per room
     cmds += write_cmd_id(4)
-    cmds += struct.pack('<I', 1)  # numRooms = 1
-    cmds += write_str(room_path)  # room 0 path
-    cmds += struct.pack('<II', 0, max(room_size, 0x100))  # vromStart, vromEnd
+    cmds += struct.pack('<I', len(rooms))
+    for path in rooms:
+        cmds += write_str(path)
+        cmds += struct.pack('<II', 0, max(room_size, 0x100))  # vromStart, vromEnd
     n += 1
 
     # SpawnList (ID=0): 1 spawn point at center of room
@@ -884,28 +900,30 @@ def build_dungeon_o2r(
     *,
     include_mario_dl: bool = True,
     include_pizza_dl: bool = True,
+    rooms: list[dict] | None = None,
 ) -> Path:
-    """Build a custom box-room .o2r with the given actors.
+    """Build a custom box-room .o2r.
 
-    Pipeline-callable entry point used by both the standalone tooling main()
-    and the sidecar compiler bridge (livegen.compiler.box_room_dungeon).
+    Single-room mode (v0.6 baseline): pass `actors` (or None for defaults).
+    Multi-room mode (M7+): pass `rooms` — a list of dicts with keys:
+        - "actors":     list of actor dicts (defaults to []) — populated only
+                         in the room they're authored in.
+        - "offset":     (ox, oy, oz) world translation for the box geometry.
+        - "skip_walls": optional set of face names ("east"/"west"/...) that
+                         this room should NOT render — used for the shared
+                         boundary between adjacent rooms.
+
+    `actors` is ignored when `rooms` is provided.
 
     Args:
         output_path: where to write the .o2r
-        actors: list of actor dicts in the format consumed by build_room_header
-                (keys: name + x/y/z + optional rot_y + optional params).
-                Falls back to a built-in test layout when None.
-        include_mario_dl: pack Mario VTX/DL into the .o2r so the in-game custom
-                chest drawFunc can resolve it via __OTR__ paths.
-        include_pizza_dl: pack Pizza VTX/DL for the spinning decoration hook.
+        include_mario_dl: pack Mario VTX/DL (resolved by chest drawFunc)
+        include_pizza_dl: pack Pizza VTX/DL (resolved by decoration hook)
     """
     from obj_to_dl import parse_obj
     from mesh_to_dl import load_mesh
 
     TARGET = "scenes/nonmq/ydan_scene"
-    VTX_PATH = f"{TARGET}/squadala_box_Vtx"
-    DL_PATH = f"{TARGET}/squadala_box_DL"
-    ROOM_PATH = f"{TARGET}/ydan_room_0"
     COLLISION_PATH = f"{TARGET}/ydan_sceneCollisionHeader_00B610"
 
     # Pipeline assets live under tooling/assets/3d/. _raw_data/ is the user's
@@ -920,15 +938,15 @@ def build_dungeon_o2r(
     PIZZA_VTX_PATH = f"{TARGET}/squadala_pizza_Vtx"
     PIZZA_DL_PATH = f"{TARGET}/squadala_pizza_DL"
 
-    if actors is None:
-        actors = _resolve_default_actors()
+    # Normalise to multi-room shape so the rest of the function has a single
+    # code path. Single-room scenes are just a 1-element rooms list.
+    if rooms is None:
+        if actors is None:
+            actors = _resolve_default_actors()
+        rooms = [{"actors": actors, "offset": (0, 0, 0), "skip_walls": set()}]
 
-    vertices, colors = build_box_vertices()
-    faces = build_box_faces()
-
-    vtx_resource = build_vtx_resource(vertices, colors)
-    dl_resource = build_display_list(VTX_PATH, len(vertices), faces)
-
+    # Shared decoration assets (Mario chest, Pizza) — packed once, referenced
+    # by all rooms via __OTR__ paths.
     mario_vtx = mario_dl = pizza_vtx = pizza_dl = None
     if include_mario_dl:
         mario = parse_obj(MARIO_OBJ, scale=200.0, y_offset=35.0, rotation_y_degrees=0.0)
@@ -953,39 +971,93 @@ def build_dungeon_o2r(
         print(f"Pizza: {len(pizza.vertices)} verts, {len(pizza.triangles)} tris → "
               f"VTX {len(pizza_vtx)}B, DL {len(pizza_dl)}B")
 
-    room_header = build_room_header(DL_PATH, actors=actors)
+    # Per-room: build dedicated VTX, DL and room-header resource.
+    room_paths: list[str] = []
+    room_assets: list[tuple[str, bytes, str, bytes, str, bytes]] = []
+    total_actors = 0
+    for i, room_cfg in enumerate(rooms):
+        room_actors = room_cfg.get("actors", [])
+        offset = room_cfg.get("offset", (0, 0, 0))
+        skip_walls = room_cfg.get("skip_walls", set())
+        total_actors += len(room_actors)
+
+        vtx_path = f"{TARGET}/squadala_room{i}_Vtx"
+        dl_path = f"{TARGET}/squadala_room{i}_DL"
+        room_path = f"{TARGET}/ydan_room_{i}"
+        room_paths.append(room_path)
+
+        verts, cols, n_faces = build_box_vertices(offset=offset, skip_walls=skip_walls)
+        faces = build_box_faces(n_faces)
+        vtx_res = build_vtx_resource(verts, cols)
+        dl_res = build_display_list(vtx_path, len(verts), faces)
+        room_res = build_room_header(dl_path, actors=room_actors)
+        room_assets.append((vtx_path, vtx_res, dl_path, dl_res, room_path, room_res))
+
     collision = build_collision()
-    scene_header = build_scene_header(ROOM_PATH, COLLISION_PATH, len(room_header))
+    scene_header = build_scene_header(
+        room_paths if len(room_paths) > 1 else room_paths[0],
+        COLLISION_PATH,
+        max(len(r[5]) for r in room_assets),
+    )
 
     output = Path(output_path)
     output.parent.mkdir(parents=True, exist_ok=True)
 
     with zipfile.ZipFile(str(output), 'w', zipfile.ZIP_STORED) as oz:
-        oz.writestr(VTX_PATH, vtx_resource)
+        for vtx_path, vtx_res, dl_path, dl_res, room_path, room_res in room_assets:
+            oz.writestr(vtx_path, vtx_res)
+            oz.writestr(dl_path, dl_res)
+            oz.writestr(room_path, room_res)
         if mario_vtx is not None:
             oz.writestr(MARIO_VTX_PATH, mario_vtx)
             oz.writestr(MARIO_DL_PATH, mario_dl)
         if pizza_vtx is not None:
             oz.writestr(PIZZA_VTX_PATH, pizza_vtx)
             oz.writestr(PIZZA_DL_PATH, pizza_dl)
-        oz.writestr(DL_PATH, dl_resource)
-        oz.writestr(ROOM_PATH, room_header)
         oz.writestr(COLLISION_PATH, collision)
         oz.writestr(f"{TARGET}/ydan_scene", scene_header)
 
-        print(f"Scene: {len(scene_header)}B | Room: {len(room_header)}B | DL: {len(dl_resource)}B")
-        print(f"VTX: {len(vtx_resource)}B | Collision: {len(collision)}B")
+        print(f"Scene: {len(scene_header)}B | Rooms: {len(room_assets)} | Collision: {len(collision)}B")
 
     print(f"Output: {output} ({output.stat().st_size} bytes)")
-    print(f"Actors: {len(actors)} | Mario DL: {include_mario_dl} | Pizza DL: {include_pizza_dl}")
+    print(f"Actors: {total_actors} | Mario DL: {include_mario_dl} | Pizza DL: {include_pizza_dl}")
     return output
 
 
 def main():
-    """Standalone CLI — builds the test box room with the default actor layout."""
+    """Standalone CLI — builds the M7 step-1 test layout: 2 rooms side-by-side
+    with the shared east/west wall removed (open passage). No transition actor
+    yet, so the room transition isn't fired — but you should be able to see
+    Room 1 through the gap and walk into it on the vanilla collision floor.
+
+    Pass `--single` to build the v0.6 single-room baseline instead.
+    """
+    import sys
     output = Path.home() / "workspace/SoH/soh-source/build-cmake/soh/debug_rooms/zzz_squadala_dungeon.o2r"
-    build_dungeon_o2r(output, actors=None)
-    print("Complete override: Scene + Room + DL + VTX + Collision")
+
+    if "--single" in sys.argv:
+        build_dungeon_o2r(output, actors=None)
+        print("Complete override: Scene + Room + DL + VTX + Collision (single)")
+        return
+
+    # M7 step-1: two box rooms aligned along +X. Room 0 keeps the v0.6 actor
+    # layout (Mario chest, pots, deku babas, item showcase). Room 1 is empty
+    # for now — we just want to confirm the shared boundary renders correctly
+    # and the second room's geometry shows up.
+    rooms = [
+        {
+            "actors": _resolve_default_actors(),
+            "offset": (0, 0, 0),
+            "skip_walls": {"east"},      # shared boundary at x=+600
+        },
+        {
+            "actors": [],
+            "offset": (1200, 0, 0),       # 2*w east of room 0 → walls coincide at x=+600
+            "skip_walls": {"west"},
+        },
+    ]
+    build_dungeon_o2r(output, rooms=rooms)
+    print("Complete override: Scene + 2 Rooms + DLs + VTXs + Collision")
 
 
 if __name__ == "__main__":

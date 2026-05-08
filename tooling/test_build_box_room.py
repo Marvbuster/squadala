@@ -19,14 +19,15 @@ from build_box_room import (
 )
 
 
-# build_box_vertices() now returns (verts, colors) as a tuple — wrap for tests
+# build_box_vertices() returns (verts, colors, n_faces) — wrap for tests that
+# only care about verts/colors.
 def _verts_only():
-    verts, _ = build_box_vertices()
+    verts, _, _ = build_box_vertices()
     return verts
 
 
 def _colors_only():
-    _, colors = build_box_vertices()
+    _, colors, _ = build_box_vertices()
     return colors
 
 
@@ -129,7 +130,7 @@ class TestResourceHeader:
 
 class TestVertexResource:
     def setup_method(self):
-        self.vertices, self.colors = build_box_vertices()
+        self.vertices, self.colors, _ = build_box_vertices()
         self.vtx = build_vtx_resource(self.vertices, self.colors)
 
     def test_header_present(self):
@@ -574,7 +575,7 @@ class TestO2RIntegration:
         self.vtx_path = f"{self.target}/squadala_box_Vtx"
         self.dl_path = f"{self.target}/squadala_box_DL"
 
-        verts, colors = build_box_vertices()
+        verts, colors, _ = build_box_vertices()
         self.vtx_resource = build_vtx_resource(verts, colors)
         self.dl_resource = build_display_list(self.vtx_path, 8, build_box_faces())
         self.room_header = build_room_header(self.dl_path)

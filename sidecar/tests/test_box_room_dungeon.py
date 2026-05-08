@@ -126,8 +126,8 @@ def test_build_dungeon_o2r_writes_complete_archive(tmp_path: Path) -> None:
 
     target = "scenes/nonmq/ydan_scene"
     expected = {
-        f"{target}/squadala_box_DL",
-        f"{target}/squadala_box_Vtx",
+        f"{target}/squadala_room0_DL",
+        f"{target}/squadala_room0_Vtx",
         f"{target}/squadala_mario_DL",
         f"{target}/squadala_mario_Vtx",
         f"{target}/squadala_pizza_DL",
