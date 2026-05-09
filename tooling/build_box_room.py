@@ -129,9 +129,13 @@ def _door_wall_panels(face: str, w: int, d: int, floor_y: int, ceiling_y: int,
     half = door["half_width"]
     door_top = floor_y + door["height"]
     panels: list[list[tuple[int, int, int]]] = []
+    # Pull the door panels 1 unit toward the room's interior so that the
+    # adjacent room's panels don't share the exact same plane → no Z-fight
+    # when both rooms render simultaneously during the room transition.
+    SHRINK = 1
 
     if face == "east":
-        x = w
+        x = w - SHRINK
         # Original east winding: (x, y_low, z_back) → (x, y_low, z_front) →
         #                        (x, y_high, z_front) → (x, y_high, z_back)
         # Above panel (top strip across the full width).
@@ -150,7 +154,7 @@ def _door_wall_panels(face: str, w: int, d: int, floor_y: int, ceiling_y: int,
             (x, door_top, -half), (x, door_top, -d),
         ])
     elif face == "west":
-        x = -w
+        x = -w + SHRINK
         # Original west winding: (x, y_low, z_front) → (x, y_low, z_back) →
         #                        (x, y_high, z_back) → (x, y_high, z_front)
         panels.append([
