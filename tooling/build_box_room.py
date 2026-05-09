@@ -575,7 +575,11 @@ ACTOR_LIBRARY = {
     "poe":             (0x000D,  0x0000,          [OBJ_FIREFLY]),    # TODO: verify obj
     "floormaster":     (0x008E,  0x0000,          [OBJ_WALLMASTER]),
     "wallmaster":      (0x0011,  0x0000,          [OBJ_WALLMASTER]),
-    "armos":           (0x0023,  0x0000,          []),               # gameplay_dangeon_keep
+    "armos":           (0x0054,  0x0000,          []),               # En_Am — was mislabelled as 0x0023 (En_Holl) in earlier code
+    # — Transition actors. These belong in the scene-level TransitionActorList,
+    #   never in an actor-list — but registering them here gives them a single
+    #   source of actor IDs / object requirements like everything else. —
+    "en_holl":         (0x0023,  0x0000,          []),               # invisible plane trigger between rooms
     "beamos":          (0x0087,  0x0000,          []),               # gameplay_dangeon_keep
     "like_like":       (0x00DD,  0x0000,          [OBJ_RR]),
     "bubble":          (0x0069,  0x0000,          [OBJ_BB]),
@@ -600,6 +604,27 @@ def build_actor_entry(actor_name: str, x: int, y: int, z: int,
         rot_y -= 0x10000
     # Format: uint16 id, int16 posX,Y,Z, int16 rotX,Y,Z, uint16 params
     return struct.pack('<HhhhhhhH', actor_id, x, y, z, 0, rot_y, 0, p)
+
+
+def build_transition_actor_entry(actor_name: str, front_room: int, back_room: int,
+                                  x: int, y: int, z: int,
+                                  rot_y: int = 0, params: int = 0,
+                                  front_fx: int = 0, back_fx: int = 0) -> bytes:
+    """Build a single 16-byte TransitionActorEntry.
+
+    Format: <bbbbhhhhhH> — front_room, front_fx, back_room, back_fx,
+                            actor_id, posX, posY, posZ, rotY, params.
+    Used by Scene's TransitionActorList (cmd 0x0E). En_Holl/En_Door belong
+    here, not in a per-room ActorList.
+    """
+    if actor_name not in ACTOR_LIBRARY:
+        raise ValueError(f"Unknown transition actor: {actor_name}")
+    actor_id, _, _ = ACTOR_LIBRARY[actor_name]
+    if rot_y >= 0x8000:
+        rot_y -= 0x10000
+    return struct.pack('<bbbbhhhhhH',
+                       front_room, front_fx, back_room, back_fx,
+                       actor_id, x, y, z, rot_y, params)
 
 
 def collect_required_objects(actors: list[str]) -> list[int]:
@@ -632,12 +657,16 @@ def write_str(s: str) -> bytes:
     return struct.pack('<I', len(b)) + b
 
 
-def build_scene_header(room_path, collision_path: str, room_size: int = 0x100) -> bytes:
+def build_scene_header(room_path, collision_path: str, room_size: int = 0x100,
+                       transition_actors: list[dict] | None = None) -> bytes:
     """Build a Scene that references one or more rooms.
 
     Args:
         room_path: a single string (single-room scene) OR a list of strings
                    (multi-room scene). RoomList emits one entry per path.
+        transition_actors: optional list of dicts forwarded to
+                            build_transition_actor_entry — emitted as the
+                            scene's TransitionActorList (cmd 0x0E).
     """
     header = build_resource_header(RES_ROOM)  # Scene uses same MORO type
 
@@ -669,11 +698,15 @@ def build_scene_header(room_path, collision_path: str, room_size: int = 0x100) -
         cmds += struct.pack('<II', 0, max(room_size, 0x100))  # vromStart, vromEnd
     n += 1
 
-    # TransitionActorList (ID=14): empty for now. Vanilla scenes always emit
-    # this command (even when empty) and downstream code may rely on it
-    # running to clear/initialise transiActorCtx.
+    # TransitionActorList (ID=14): one TransitionActorEntry per transition
+    # (En_Holl, En_Door, …). Vanilla scenes always emit this command, and
+    # SoH's Scene_CommandTransitionActorList writes play->transiActorCtx
+    # from it — so even an empty list keeps the engine in a known state.
+    transition_actors = transition_actors or []
     cmds += write_cmd_id(14)
-    cmds += struct.pack('<I', 0)  # numTransitionActors
+    cmds += struct.pack('<I', len(transition_actors))
+    for ta in transition_actors:
+        cmds += build_transition_actor_entry(**ta)
     n += 1
 
     # MiscSettings (ID=25): cameraMovement + worldMapArea (matches vanilla)
@@ -1047,6 +1080,7 @@ def build_dungeon_o2r(
     include_pizza_dl: bool = True,
     rooms: list[dict] | None = None,
     inner_walls: list[dict] | None = None,
+    transition_actors: list[dict] | None = None,
 ) -> Path:
     """Build a custom box-room .o2r.
 
@@ -1179,6 +1213,7 @@ def build_dungeon_o2r(
         room_paths if len(room_paths) > 1 else room_paths[0],
         COLLISION_PATH,
         max(len(r[5]) for r in room_assets),
+        transition_actors=transition_actors,
     )
 
     output = Path(output_path)
@@ -1242,8 +1277,20 @@ def main():
     inner_walls = [
         {"x": 600, "z_range": (-1500, 1500), "door": DOOR_SPEC},
     ]
-    build_dungeon_o2r(output, rooms=rooms, inner_walls=inner_walls)
-    print("Complete override: Scene + 2 Rooms + DLs + VTXs + Collision")
+    # En_Holl is an invisible plane trigger that fires the room transition
+    # when Link walks through it. Place at the door hole (world (600,-100,0))
+    # at floor level so Link's actor-local Y stays inside En_Holl's trigger
+    # range (PLANE_Y_MIN=-50, PLANE_Y_MAX=200 are checked against
+    # link.y - actor.y; with both at floor that's local Y=0).
+    transition_actors = [
+        {"actor_name": "en_holl", "front_room": 0, "back_room": 1,
+         "x": 600, "y": -100, "z": 0,
+         "rot_y": 0x4000,  # facing +X — the trigger plane is perpendicular
+         "params": 0x0000},
+    ]
+    build_dungeon_o2r(output, rooms=rooms, inner_walls=inner_walls,
+                      transition_actors=transition_actors)
+    print("Complete override: Scene + 2 Rooms + DLs + VTXs + Collision + En_Holl")
 
 
 if __name__ == "__main__":
