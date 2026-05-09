@@ -124,16 +124,16 @@ def test_build_dungeon_o2r_writes_complete_archive(tmp_path: Path) -> None:
     with zipfile.ZipFile(output) as z:
         names = set(z.namelist())
 
-    target = "scenes/nonmq/ydan_scene"
+    target = "scenes/squadala"
     expected = {
-        f"{target}/squadala_room0_DL",
-        f"{target}/squadala_room0_Vtx",
-        f"{target}/squadala_mario_DL",
-        f"{target}/squadala_mario_Vtx",
-        f"{target}/squadala_pizza_DL",
-        f"{target}/squadala_pizza_Vtx",
-        f"{target}/ydan_room_0",
-        f"{target}/ydan_sceneCollisionHeader_00B610",
-        f"{target}/ydan_scene",
+        f"{target}/room0_DL",
+        f"{target}/room0_Vtx",
+        f"{target}/mario_DL",
+        f"{target}/mario_Vtx",
+        f"{target}/pizza_DL",
+        f"{target}/pizza_Vtx",
+        f"{target}/room_0",
+        f"{target}/collision",
+        f"{target}/dungeon_scene",
     }
     assert expected <= names

@@ -648,6 +648,14 @@ def build_scene_header(room_path, collision_path: str, room_size: int = 0x100) -
     cmds = bytearray()
     n = 0
 
+    # Command order mirrors vanilla Deku Tree (scene 0x0). The order itself
+    # doesn't matter to most commands, but EntranceList (6) MUST come before
+    # SpawnList (0) — Scene_CommandSpawnList reads
+    # play->setupEntranceList[curSpawn] which is populated by the EntranceList
+    # command. Including MiscSettings (25) and ExitList (19) to match what
+    # vanilla scenes provide; without MiscSettings the camera initialises with
+    # garbage cameraMovement, which can leave the world unrenderable.
+
     # SoundSettings (ID=21): reverb=3, nature=0x13, seq=0x1C (same as Deku Tree)
     cmds += write_cmd_id(21)
     cmds += bytes([3, 0x13, 0x1C])
@@ -661,18 +669,16 @@ def build_scene_header(room_path, collision_path: str, room_size: int = 0x100) -
         cmds += struct.pack('<II', 0, max(room_size, 0x100))  # vromStart, vromEnd
     n += 1
 
-    # SpawnList (ID=0): 1 spawn point at center of room
-    cmds += write_cmd_id(0)
-    cmds += struct.pack('<I', 1)  # numSpawns
-    # ActorEntry: id=0x0000 (ACTOR_PLAYER), pos=(0,0,0), rot=(0,0,0), params=0x0FFF
-    # ActorEntry: uint16 id, int16 posX,Y,Z, int16 rotX,Y,Z, uint16 params
-    cmds += struct.pack('<HhhhhhhH', 0x0000, 0, 0, 0, 0, 0, 0, 0x0FFF)
+    # TransitionActorList (ID=14): empty for now. Vanilla scenes always emit
+    # this command (even when empty) and downstream code may rely on it
+    # running to clear/initialise transiActorCtx.
+    cmds += write_cmd_id(14)
+    cmds += struct.pack('<I', 0)  # numTransitionActors
     n += 1
 
-    # EntranceList (ID=6): 1 entrance → spawn 0, room 0
-    cmds += write_cmd_id(6)
-    cmds += struct.pack('<I', 1)  # numEntrances
-    cmds += struct.pack('<bb', 0, 0)  # spawn=0, room=0
+    # MiscSettings (ID=25): cameraMovement + worldMapArea (matches vanilla)
+    cmds += write_cmd_id(25)
+    cmds += struct.pack('<bI', 0, 0)
     n += 1
 
     # CollisionHeader (ID=3): path to our custom collision
@@ -680,9 +686,24 @@ def build_scene_header(room_path, collision_path: str, room_size: int = 0x100) -
     cmds += write_str(collision_path)
     n += 1
 
-    # SpecialObjects (ID=7): elfMsg=0, globalObject=1 (gameplay_keep)
+    # EntranceList (ID=6) — must come before SpawnList. Provide N identical
+    # slots so any vanilla curSpawn (>0) resolves to {spawn=0, room=0}.
+    ENTRANCE_LIST_SLOTS = 16
+    cmds += write_cmd_id(6)
+    cmds += struct.pack('<I', ENTRANCE_LIST_SLOTS)
+    for _ in range(ENTRANCE_LIST_SLOTS):
+        cmds += struct.pack('<bb', 0, 0)  # spawn=0, room=0
+    n += 1
+
+    # SpecialFiles (ID=7): elfMsg=0, globalObject=1 (gameplay_keep)
     cmds += write_cmd_id(7)
     cmds += bytes([0]) + struct.pack('<h', 1)
+    n += 1
+
+    # SpawnList (ID=0): 1 spawn point at room centre.
+    cmds += write_cmd_id(0)
+    cmds += struct.pack('<I', 1)  # numSpawns
+    cmds += struct.pack('<HhhhhhhH', 0x0000, 0, 0, 0, 0, 0, 0, 0x0FFF)
     n += 1
 
     # SkyboxSettings (ID=17): unk=0, skyboxId=0, weather=0, indoors=1 (4 bytes!)
@@ -690,10 +711,23 @@ def build_scene_header(room_path, collision_path: str, room_size: int = 0x100) -
     cmds += bytes([0, 0, 0, 1])
     n += 1
 
-    # LightSettings (ID=15): 1 simple light setting
+    # ExitList (ID=19): zero exits. Vanilla provides one even when none are
+    # used; some downstream code may iterate the list assuming the command
+    # has run.
+    cmds += write_cmd_id(19)
+    cmds += struct.pack('<I', 0)
+    n += 1
+
+    # LightSettings (ID=15): 1 simple light setting (22 bytes per entry).
+    # Layout: 3×u8 ambient, 3×s8 light1 dir, 3×u8 light1 color,
+    # 3×s8 light2 dir, 3×u8 light2 color, 3×u8 fog color, s16 fogNear, s16 zFar.
+    # SoH reads s16 fields as little-endian — earlier hard-coded byte literals
+    # were big-endian (0x03,0xE0 == 0x03E0 BE == 992 BE; SoH read this as
+    # 0xE003 LE = -8189). zFar bytes (0x10,0x00) parsed to LE 0x0010 = 16,
+    # which makes the camera fog out everything beyond 16 units → black world.
+    # Use struct.pack('<h', ...) to write the fields in the right endianness.
     cmds += write_cmd_id(15)
     cmds += struct.pack('<I', 1)  # count
-    # 22 bytes per light setting: ambient RGB, light1 dir+color, light2 dir+color, fog color+near+far
     cmds += bytes([
         80, 80, 90,       # ambient RGB
         50, 50, 50,       # light1 dir
@@ -701,9 +735,8 @@ def build_scene_header(room_path, collision_path: str, room_size: int = 0x100) -
         -50 & 0xFF, -50 & 0xFF, -50 & 0xFF,  # light2 dir
         60, 60, 80,       # light2 color
         100, 90, 80,      # fog color
-        0x03, 0xE0,       # fog near (992)
-        0x10, 0x00,       # fog far (4096)
     ])
+    cmds += struct.pack('<hh', 996, 12800)  # fogNear, zFar (LE s16, matches vanilla scale)
     n += 1
 
     # EndMarker (ID=20)
@@ -1001,20 +1034,24 @@ def build_dungeon_o2r(
     from obj_to_dl import parse_obj
     from mesh_to_dl import load_mesh
 
-    TARGET = "scenes/nonmq/ydan_scene"
-    COLLISION_PATH = f"{TARGET}/ydan_sceneCollisionHeader_00B610"
+    # All Squadala assets live under their own namespace — no overlap with
+    # vanilla resource paths. This means LoadResource never collides with
+    # cached vanilla data, so we don't need to evict anything to load fresh.
+    TARGET = "scenes/squadala"
+    SCENE_PATH = f"{TARGET}/dungeon_scene"
+    COLLISION_PATH = f"{TARGET}/collision"
 
     # Pipeline assets live under tooling/assets/3d/. _raw_data/ is the user's
     # drop-zone (raw deliveries) and must never be referenced from build code.
     ASSETS_3D = Path(__file__).parent / "assets" / "3d"
 
     MARIO_OBJ = ASSETS_3D / "super_mario" / "model.obj"
-    MARIO_VTX_PATH = f"{TARGET}/squadala_mario_Vtx"
-    MARIO_DL_PATH = f"{TARGET}/squadala_mario_DL"
+    MARIO_VTX_PATH = f"{TARGET}/mario_Vtx"
+    MARIO_DL_PATH = f"{TARGET}/mario_DL"
 
     PIZZA_GLB = ASSETS_3D / "pizza.glb"
-    PIZZA_VTX_PATH = f"{TARGET}/squadala_pizza_Vtx"
-    PIZZA_DL_PATH = f"{TARGET}/squadala_pizza_DL"
+    PIZZA_VTX_PATH = f"{TARGET}/pizza_Vtx"
+    PIZZA_DL_PATH = f"{TARGET}/pizza_DL"
 
     # Normalise to multi-room shape so the rest of the function has a single
     # code path. Single-room scenes are just a 1-element rooms list.
@@ -1060,9 +1097,9 @@ def build_dungeon_o2r(
         doors = room_cfg.get("doors", {})
         total_actors += len(room_actors)
 
-        vtx_path = f"{TARGET}/squadala_room{i}_Vtx"
-        dl_path = f"{TARGET}/squadala_room{i}_DL"
-        room_path = f"{TARGET}/ydan_room_{i}"
+        vtx_path = f"{TARGET}/room{i}_Vtx"
+        dl_path = f"{TARGET}/room{i}_DL"
+        room_path = f"{TARGET}/room_{i}"
         room_paths.append(room_path)
 
         verts, cols, n_faces = build_box_vertices(
@@ -1096,7 +1133,7 @@ def build_dungeon_o2r(
             oz.writestr(PIZZA_VTX_PATH, pizza_vtx)
             oz.writestr(PIZZA_DL_PATH, pizza_dl)
         oz.writestr(COLLISION_PATH, collision)
-        oz.writestr(f"{TARGET}/ydan_scene", scene_header)
+        oz.writestr(SCENE_PATH, scene_header)
 
         print(f"Scene: {len(scene_header)}B | Rooms: {len(room_assets)} | Collision: {len(collision)}B")
 
