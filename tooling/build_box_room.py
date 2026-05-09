@@ -827,74 +827,111 @@ def build_room_header(dl_path: str, actors: list = None,
 # Collision (LOCO) — simple flat floor
 # ============================================================
 
-def build_collision(w=600, h=600, d=1500) -> bytes:
-    """Complete box collision: floor + 4 walls + ceiling.
+def build_collision(min_x: int = -600, max_x: int = 600,
+                     floor_y: int = -100, h: int = 600,
+                     min_z: int = -1500, max_z: int = 1500,
+                     inner_walls: list[dict] | None = None) -> bytes:
+    """Complete box collision: floor + 4 outer walls + ceiling, plus optional
+    inner walls with door cutouts.
 
-    Box matches the visual mesh dimensions (w/h/d match build_box_vertices).
-    Floor at Y=-100 so Link can spawn at Y=0 and land softly.
+    Outer box spans (min_x..max_x, floor_y..floor_y+h, min_z..max_z) —
+    defaults match the v0.6 single-room layout.
+
+    `inner_walls` is a list of dicts describing X-aligned shared walls
+    between rooms. Each dict has keys:
+        - "x":         world x-plane the wall sits on
+        - "z_range":   (z_min, z_max) extent of the wall
+        - "door":      {"half_width", "height"} centred door cutout at z=0,
+                        y=[floor_y, floor_y+height]
+    Each inner wall emits three quad panels (above + two flanks) and
+    bidirectional collision polys so Link is blocked from both sides
+    except where the door hole sits.
     """
+    inner_walls = inner_walls or []
     header = build_resource_header(RES_COLLISION)
-
-    floor_y = -100
     ceiling_y = floor_y + h
 
     body = bytearray()
-    # Bounding box
-    body += struct.pack('<hhh', -w, floor_y, -d)        # min
-    body += struct.pack('<hhh', w, ceiling_y, d)        # max
+    body += struct.pack('<hhh', min_x, floor_y,   min_z)  # min
+    body += struct.pack('<hhh', max_x, ceiling_y, max_z)  # max
 
-    # 8 vertices: 4 floor corners + 4 ceiling corners
-    # Floor (Y=floor_y):    0=(-w,-d), 1=(w,-d), 2=(w,d), 3=(-w,d)
-    # Ceiling (Y=ceiling_y): 4=(-w,-d), 5=(w,-d), 6=(w,d), 7=(-w,d)
-    verts = [
-        (-w, floor_y,   -d),  # 0
-        ( w, floor_y,   -d),  # 1
-        ( w, floor_y,    d),  # 2
-        (-w, floor_y,    d),  # 3
-        (-w, ceiling_y, -d),  # 4
-        ( w, ceiling_y, -d),  # 5
-        ( w, ceiling_y,  d),  # 6
-        (-w, ceiling_y,  d),  # 7
+    # Outer-box corners: 4 floor + 4 ceiling.
+    verts: list[tuple[int, int, int]] = [
+        (min_x, floor_y,   min_z),  # 0
+        (max_x, floor_y,   min_z),  # 1
+        (max_x, floor_y,   max_z),  # 2
+        (min_x, floor_y,   max_z),  # 3
+        (min_x, ceiling_y, min_z),  # 4
+        (max_x, ceiling_y, min_z),  # 5
+        (max_x, ceiling_y, max_z),  # 6
+        (min_x, ceiling_y, max_z),  # 7
     ]
+
+    # Format: (surface_type, vIA, vIB, vIC, normalX, normalY, normalZ, dist)
+    # All normals are int16 with 0x7FFF = 1.0 in Q1.15 fixed point.
+    NX_POS = 0x7FFF; NX_NEG = 0x8001
+    NY_POS = 0x7FFF; NY_NEG = 0x8001
+    NZ_POS = 0x7FFF; NZ_NEG = 0x8001
+
+    # dist = -dot(normal, point_on_plane).
+    polys: list[tuple] = [
+        # FLOOR — normal +Y.
+        (0, 0, 2, 1, 0, NY_POS, 0, -floor_y),
+        (0, 0, 3, 2, 0, NY_POS, 0, -floor_y),
+        # CEILING — normal -Y.
+        (0, 4, 5, 6, 0, NY_NEG, 0, ceiling_y),
+        (0, 4, 6, 7, 0, NY_NEG, 0, ceiling_y),
+        # NORTH WALL z=min_z, normal +Z.
+        (0, 0, 1, 5, 0, 0, NZ_POS, -min_z),
+        (0, 0, 5, 4, 0, 0, NZ_POS, -min_z),
+        # SOUTH WALL z=max_z, normal -Z.
+        (0, 2, 3, 7, 0, 0, NZ_NEG, max_z),
+        (0, 2, 7, 6, 0, 0, NZ_NEG, max_z),
+        # WEST WALL x=min_x, normal +X.
+        (0, 3, 0, 4, NX_POS, 0, 0, -min_x),
+        (0, 3, 4, 7, NX_POS, 0, 0, -min_x),
+        # EAST WALL x=max_x, normal -X.
+        (0, 1, 2, 6, NX_NEG, 0, 0, max_x),
+        (0, 1, 6, 5, NX_NEG, 0, 0, max_x),
+    ]
+
+    base_idx = len(verts)
+    for iw in inner_walls:
+        x = iw["x"]
+        zmin, zmax = iw["z_range"]
+        door = iw["door"]
+        door_top = floor_y + door["height"]
+        door_half = door["half_width"]
+
+        # Three panel quads. Winding order picks the +X normal ("blocks Link
+        # coming from -X side"); we then emit a second poly with reversed
+        # winding for the -X normal so the wall blocks both sides.
+        panels = [
+            # Above the door — full width, top strip from door_top to ceiling.
+            ((x, door_top, zmin),  (x, door_top, zmax),
+             (x, ceiling_y, zmax), (x, ceiling_y, zmin)),
+            # Flank toward +Z (between door and zmax).
+            ((x, floor_y, door_half), (x, floor_y, zmax),
+             (x, door_top, zmax),     (x, door_top, door_half)),
+            # Flank toward -Z (between zmin and door).
+            ((x, floor_y, zmin),   (x, floor_y, -door_half),
+             (x, door_top, -door_half), (x, door_top, zmin)),
+        ]
+        for v0, v1, v2, v3 in panels:
+            verts.extend([v0, v1, v2, v3])
+            a, b, c, d = base_idx, base_idx + 1, base_idx + 2, base_idx + 3
+            # Normal +X (block from -X side)
+            polys.append((0, a, b, c, NX_POS, 0, 0, -x))
+            polys.append((0, a, c, d, NX_POS, 0, 0, -x))
+            # Normal -X (block from +X side) — reversed winding.
+            polys.append((0, c, b, a, NX_NEG, 0, 0,  x))
+            polys.append((0, d, c, a, NX_NEG, 0, 0,  x))
+            base_idx += 4
+
     body += struct.pack('<i', len(verts))
     for v in verts:
         body += struct.pack('<hhh', *v)
 
-    # Polygons: 12 triangles (2 floor + 2 ceiling + 2 per wall × 4)
-    # Format: (surface_type, vIA, vIB, vIC, normalX, normalY, normalZ, dist)
-    # All normals as int16 with 0x7FFF = 1.0 in fixed point.
-    NX_POS = 0x7FFF; NX_NEG = 0x8001  # ±1 in X
-    NY_POS = 0x7FFF; NY_NEG = 0x8001  # ±1 in Y
-    NZ_POS = 0x7FFF; NZ_NEG = 0x8001  # ±1 in Z
-
-    # dist = -dot(normal, vertex_on_plane). For normal (0,1,0) and floor at Y=-100:
-    # dist = -(-100) = 100 (the formula is normal · point + dist = 0)
-    polys = [
-        # FLOOR — normal +Y. CCW from above: 0,2,1 and 0,3,2
-        (0, 0, 2, 1, 0, NY_POS, 0, -floor_y),
-        (0, 0, 3, 2, 0, NY_POS, 0, -floor_y),
-
-        # CEILING — normal -Y. CCW from below: 4,5,6 and 4,6,7
-        (0, 4, 5, 6, 0, NY_NEG, 0, ceiling_y),
-        (0, 4, 6, 7, 0, NY_NEG, 0, ceiling_y),
-
-        # NORTH WALL Z=-d, normal +Z (inward). Floor verts 0,1; Ceiling 4,5
-        # CCW from inside (south side, looking north): 0,1,5 and 0,5,4
-        (0, 0, 1, 5, 0, 0, NZ_POS, d),
-        (0, 0, 5, 4, 0, 0, NZ_POS, d),
-
-        # SOUTH WALL Z=+d, normal -Z (inward). Floor 2,3; Ceiling 6,7
-        (0, 2, 3, 7, 0, 0, NZ_NEG, d),
-        (0, 2, 7, 6, 0, 0, NZ_NEG, d),
-
-        # WEST WALL X=-w, normal +X (inward). Floor 0,3; Ceiling 4,7
-        (0, 3, 0, 4, NX_POS, 0, 0, w),
-        (0, 3, 4, 7, NX_POS, 0, 0, w),
-
-        # EAST WALL X=+w, normal -X (inward). Floor 1,2; Ceiling 5,6
-        (0, 1, 2, 6, NX_NEG, 0, 0, w),
-        (0, 1, 6, 5, NX_NEG, 0, 0, w),
-    ]
     body += struct.pack('<I', len(polys))
     for surf_type, a, b, c, nx, ny, nz, dist in polys:
         body += struct.pack('<HHHHHHHH',
@@ -1009,6 +1046,7 @@ def build_dungeon_o2r(
     include_mario_dl: bool = True,
     include_pizza_dl: bool = True,
     rooms: list[dict] | None = None,
+    inner_walls: list[dict] | None = None,
 ) -> Path:
     """Build a custom box-room .o2r.
 
@@ -1111,7 +1149,32 @@ def build_dungeon_o2r(
         room_res = build_room_header(dl_path, actors=room_actors)
         room_assets.append((vtx_path, vtx_res, dl_path, dl_res, room_path, room_res))
 
-    collision = build_collision()
+    # Collision bounds = union of all rooms' visual extents. With no shared
+    # inner walls, Link can walk freely across the boundary — visual door
+    # panels (cosmetic) plus En_Holl/En_Door (M7-3b+) gate the actual room
+    # transition.
+    room_w, room_h, room_d = 600, 600, 1500  # match build_box_vertices defaults
+    floor_y = -100
+    if len(rooms) == 1:
+        ox, oy, oz = rooms[0].get("offset", (0, 0, 0))
+        collision = build_collision(
+            min_x=ox - room_w, max_x=ox + room_w,
+            floor_y=floor_y + oy, h=room_h,
+            min_z=oz - room_d, max_z=oz + room_d,
+            inner_walls=inner_walls,
+        )
+    else:
+        offsets = [r.get("offset", (0, 0, 0)) for r in rooms]
+        min_x = min(ox - room_w for ox, _, _ in offsets)
+        max_x = max(ox + room_w for ox, _, _ in offsets)
+        min_z = min(oz - room_d for _, _, oz in offsets)
+        max_z = max(oz + room_d for _, _, oz in offsets)
+        collision = build_collision(
+            min_x=min_x, max_x=max_x,
+            floor_y=floor_y, h=room_h,
+            min_z=min_z, max_z=max_z,
+            inner_walls=inner_walls,
+        )
     scene_header = build_scene_header(
         room_paths if len(room_paths) > 1 else room_paths[0],
         COLLISION_PATH,
@@ -1158,10 +1221,11 @@ def main():
         print("Complete override: Scene + Room + DL + VTX + Collision (single)")
         return
 
-    # M7 step-2: two box rooms aligned along +X with a door-shaped hole in
-    # the shared wall. Both rooms render their adjacent wall as three panels
-    # (above + two flanks) leaving a 120-wide × 200-tall opening at z=0. No
-    # transition actor yet — the hole is purely cosmetic + collision-passable.
+    # M7 step-3a: two rooms with door-cutout collision. Visual mesh has a
+    # door hole in the shared wall (M7-2); collision matches it — Link is
+    # blocked from walking through the wall except through the door
+    # opening. Still no transition actor, so room culling won't switch
+    # between rooms yet.
     DOOR_SPEC = {"half_width": 60, "height": 200}
     rooms = [
         {
@@ -1175,7 +1239,10 @@ def main():
             "doors": {"west": DOOR_SPEC},
         },
     ]
-    build_dungeon_o2r(output, rooms=rooms)
+    inner_walls = [
+        {"x": 600, "z_range": (-1500, 1500), "door": DOOR_SPEC},
+    ]
+    build_dungeon_o2r(output, rooms=rooms, inner_walls=inner_walls)
     print("Complete override: Scene + 2 Rooms + DLs + VTXs + Collision")
 
 
