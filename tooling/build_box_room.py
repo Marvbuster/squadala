@@ -663,7 +663,9 @@ def write_str(s: str) -> bytes:
 
 
 def build_scene_header(room_path, collision_path: str, room_size: int = 0x100,
-                       transition_actors: list[dict] | None = None) -> bytes:
+                       transition_actors: list[dict] | None = None,
+                       spawn_pos: tuple[int, int, int] = (0, 0, 0),
+                       spawn_rot_y: int = 0) -> bytes:
     """Build a Scene that references one or more rooms.
 
     Args:
@@ -672,6 +674,8 @@ def build_scene_header(room_path, collision_path: str, room_size: int = 0x100,
         transition_actors: optional list of dicts forwarded to
                             build_transition_actor_entry — emitted as the
                             scene's TransitionActorList (cmd 0x0E).
+        spawn_pos: (x, y, z) world position for Link's SpawnList entry.
+        spawn_rot_y: 16-bit Y rotation Link faces on spawn.
     """
     header = build_resource_header(RES_ROOM)  # Scene uses same MORO type
 
@@ -741,7 +745,9 @@ def build_scene_header(room_path, collision_path: str, room_size: int = 0x100,
     # SpawnList (ID=0): 1 spawn point at room centre.
     cmds += write_cmd_id(0)
     cmds += struct.pack('<I', 1)  # numSpawns
-    cmds += struct.pack('<HhhhhhhH', 0x0000, 0, 0, 0, 0, 0, 0, 0x0FFF)
+    sx, sy, sz = spawn_pos
+    sry = spawn_rot_y - 0x10000 if spawn_rot_y >= 0x8000 else spawn_rot_y
+    cmds += struct.pack('<HhhhhhhH', 0x0000, sx, sy, sz, 0, sry, 0, 0x0FFF)
     n += 1
 
     # SkyboxSettings (ID=17): unk=0, skyboxId=0, weather=0, indoors=1 (4 bytes!)
@@ -1087,6 +1093,8 @@ def build_dungeon_o2r(
     rooms: list[dict] | None = None,
     inner_walls: list[dict] | None = None,
     transition_actors: list[dict] | None = None,
+    spawn_pos: tuple[int, int, int] = (0, 0, 0),
+    spawn_rot_y: int = 0,
 ) -> Path:
     """Build a custom box-room .o2r.
 
@@ -1233,6 +1241,8 @@ def build_dungeon_o2r(
         COLLISION_PATH,
         max(len(r[5]) for r in room_assets),
         transition_actors=transition_actors,
+        spawn_pos=spawn_pos,
+        spawn_rot_y=spawn_rot_y,
     )
 
     output = Path(output_path)
@@ -1294,7 +1304,7 @@ def main():
         {"name": "pot", "x": 1600, "y": -100, "z":  400},
         {"name": "pot", "x":  800, "y": -100, "z":  400},
         {"name": "chest", "x": 1500, "y": -100, "z": 0,
-         "rot_y": 0xC000,  # facing -X (back toward the door)
+         "rot_y": 0x4000,  # rotated 180° from 0xC000 — chest faces +X now
          "params": chest_params(item_id=GI_LIVEGEN_SONIC, treasure_flag=2)},
         {"name": "keese", "x": 1300, "y":   50, "z": -200},
         {"name": "keese", "x": 1500, "y":   50, "z":  300},
@@ -1325,8 +1335,12 @@ def main():
          "rot_y": 0x4000,  # facing +X — the trigger plane is perpendicular
          "params": 0x0000},
     ]
+    # Spawn Link near the south end of Room 0 facing north — same "front of
+    # the room" position v0.x had before the multi-room rework moved him
+    # to centre. With chest at the centre this gives a nicer first view.
     build_dungeon_o2r(output, rooms=rooms, inner_walls=inner_walls,
-                      transition_actors=transition_actors)
+                      transition_actors=transition_actors,
+                      spawn_pos=(0, 0, 1300), spawn_rot_y=0x8000)
     print("Complete override: Scene + 2 Rooms + DLs + VTXs + Collision + En_Holl")
 
 
