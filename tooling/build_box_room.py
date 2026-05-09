@@ -495,6 +495,7 @@ GI_RUPEE_GOLD = 0x56
 # Picked from the unused 0x7E–0x7F range (after GI_TEXT_0 / before GI_MAX),
 # which still fits in En_Box's 7-bit chest-params getItemId field.
 GI_LIVEGEN_MARIO = 0x7E
+GI_LIVEGEN_SONIC = 0x7F
 
 
 def chest_params(chest_type: int = ENBOX_TYPE_BIG_DEFAULT,
@@ -1082,6 +1083,7 @@ def build_dungeon_o2r(
     *,
     include_mario_dl: bool = True,
     include_pizza_dl: bool = True,
+    include_sonic_dl: bool = True,
     rooms: list[dict] | None = None,
     inner_walls: list[dict] | None = None,
     transition_actors: list[dict] | None = None,
@@ -1125,6 +1127,10 @@ def build_dungeon_o2r(
     MARIO_VTX_PATH = f"{TARGET}/mario_Vtx"
     MARIO_DL_PATH = f"{TARGET}/mario_DL"
 
+    SONIC_OBJ = ASSETS_3D / "Pixel Sonic" / "model.obj"
+    SONIC_VTX_PATH = f"{TARGET}/sonic_Vtx"
+    SONIC_DL_PATH = f"{TARGET}/sonic_DL"
+
     PIZZA_GLB = ASSETS_3D / "pizza.glb"
     PIZZA_VTX_PATH = f"{TARGET}/pizza_Vtx"
     PIZZA_DL_PATH = f"{TARGET}/pizza_DL"
@@ -1136,9 +1142,9 @@ def build_dungeon_o2r(
             actors = _resolve_default_actors()
         rooms = [{"actors": actors, "offset": (0, 0, 0), "skip_walls": set()}]
 
-    # Shared decoration assets (Mario chest, Pizza) — packed once, referenced
-    # by all rooms via __OTR__ paths.
-    mario_vtx = mario_dl = pizza_vtx = pizza_dl = None
+    # Shared decoration / chest-content assets (Mario, Sonic, Pizza) —
+    # packed once, referenced by all rooms via __OTR__ paths.
+    mario_vtx = mario_dl = sonic_vtx = sonic_dl = pizza_vtx = pizza_dl = None
     if include_mario_dl:
         mario = parse_obj(MARIO_OBJ, scale=200.0, y_offset=35.0, rotation_y_degrees=0.0)
         mario_verts = [(v[0], v[1], v[2]) for v in mario.vertices]
@@ -1147,6 +1153,15 @@ def build_dungeon_o2r(
         mario_dl = build_unindexed_dl(MARIO_VTX_PATH, len(mario.triangles))
         print(f"Mario: {len(mario.vertices)} verts, {len(mario.triangles)} tris → "
               f"VTX {len(mario_vtx)}B, DL {len(mario_dl)}B")
+
+    if include_sonic_dl:
+        sonic = parse_obj(SONIC_OBJ, scale=200.0, y_offset=35.0, rotation_y_degrees=0.0)
+        sonic_verts = [(v[0], v[1], v[2]) for v in sonic.vertices]
+        sonic_colors = [(v[3], v[4], v[5], v[6]) for v in sonic.vertices]
+        sonic_vtx = build_vtx_resource(sonic_verts, sonic_colors)
+        sonic_dl = build_unindexed_dl(SONIC_VTX_PATH, len(sonic.triangles))
+        print(f"Sonic: {len(sonic.vertices)} verts, {len(sonic.triangles)} tris → "
+              f"VTX {len(sonic_vtx)}B, DL {len(sonic_dl)}B")
 
     if include_pizza_dl:
         pizza = load_mesh(
@@ -1231,6 +1246,9 @@ def build_dungeon_o2r(
         if mario_vtx is not None:
             oz.writestr(MARIO_VTX_PATH, mario_vtx)
             oz.writestr(MARIO_DL_PATH, mario_dl)
+        if sonic_vtx is not None:
+            oz.writestr(SONIC_VTX_PATH, sonic_vtx)
+            oz.writestr(SONIC_DL_PATH, sonic_dl)
         if pizza_vtx is not None:
             oz.writestr(PIZZA_VTX_PATH, pizza_vtx)
             oz.writestr(PIZZA_DL_PATH, pizza_dl)
@@ -1266,6 +1284,21 @@ def main():
     # opening. Still no transition actor, so room culling won't switch
     # between rooms yet.
     DOOR_SPEC = {"half_width": 60, "height": 200}
+    # Room 1 actors live in world coords (room 1 is offset +1200 in X). A
+    # small "reward room" layout: pots in the corners, a heart-piece chest
+    # facing the door so the player walks straight up to it, and two keese
+    # for some movement.
+    room1_actors = [
+        {"name": "pot", "x":  800, "y": -100, "z": -400},
+        {"name": "pot", "x": 1600, "y": -100, "z": -400},
+        {"name": "pot", "x": 1600, "y": -100, "z":  400},
+        {"name": "pot", "x":  800, "y": -100, "z":  400},
+        {"name": "chest", "x": 1500, "y": -100, "z": 0,
+         "rot_y": 0xC000,  # facing -X (back toward the door)
+         "params": chest_params(item_id=GI_LIVEGEN_SONIC, treasure_flag=2)},
+        {"name": "keese", "x": 1300, "y":   50, "z": -200},
+        {"name": "keese", "x": 1500, "y":   50, "z":  300},
+    ]
     rooms = [
         {
             "actors": _resolve_default_actors(),
@@ -1273,7 +1306,7 @@ def main():
             "doors": {"east": DOOR_SPEC},  # shared boundary at x=+600
         },
         {
-            "actors": [],
+            "actors": room1_actors,
             "offset": (1200, 0, 0),         # 2*w east of room 0 → walls coincide at x=+600
             "doors": {"west": DOOR_SPEC},
         },
