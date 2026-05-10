@@ -494,8 +494,16 @@ GI_RUPEE_GOLD = 0x56
 # LiveGen custom items — registered additively in LiveGenItemRegistry.cpp.
 # Picked from the unused 0x7E–0x7F range (after GI_TEXT_0 / before GI_MAX),
 # which still fits in En_Box's 7-bit chest-params getItemId field.
-GI_LIVEGEN_MARIO = 0x7E
-GI_LIVEGEN_SONIC = 0x7F
+GI_LIVEGEN_MARIO   = 0x7E
+GI_LIVEGEN_SONIC   = 0x7F
+# Chest params encode the item ID in 7 bits (0–0x7F), so we can't put new
+# items at 0x80+ without losing the high bit. The Hydrant takes over 0x7D
+# (vanilla GI_TEXT_0 — a "show text 0, no model" placeholder we don't use
+# anywhere in the Squadala dungeon).
+GI_LIVEGEN_HYDRANT = 0x7D
+
+# Object IDs needed by transition actors with their own visual mesh.
+OBJECT_GAMEPLAY_FIELD_KEEP = 0x0002
 
 
 def chest_params(chest_type: int = ENBOX_TYPE_BIG_DEFAULT,
@@ -585,6 +593,7 @@ ACTOR_LIBRARY = {
     #   never in an actor-list — but registering them here gives them a single
     #   source of actor IDs / object requirements like everything else. —
     "en_holl":         (0x0023,  0x0000,          []),               # invisible plane trigger between rooms
+    "en_door":         (0x0009,  0x0000,          [OBJECT_GAMEPLAY_FIELD_KEEP]),  # visible wood door
     "beamos":          (0x0087,  0x0000,          []),               # gameplay_dangeon_keep
     "like_like":       (0x00DD,  0x0000,          [OBJ_RR]),
     "bubble":          (0x0069,  0x0000,          [OBJ_BB]),
@@ -791,18 +800,24 @@ def build_scene_header(room_path, collision_path: str, room_size: int = 0x100,
 
 
 def build_room_header(dl_path: str, actors: list = None,
-                      extra_dl_paths: list[str] = None) -> bytes:
+                      extra_dl_paths: list[str] = None,
+                      extra_object_ids: list[int] | None = None) -> bytes:
     """Build room header with SetMesh Type 0, ObjectList, and ActorList.
 
     `actors` is a list of dicts: {"name": str, "x": int, "y": int, "z": int,
                                    "rot_y": int (optional), "params": int (optional)}
     `extra_dl_paths` adds additional polygon DLs (rendered alongside main `dl_path`).
+    `extra_object_ids` extends the auto-derived ObjectList with object IDs
+    needed by transition actors (En_Door etc.) that aren't part of the
+    room's actor list.
     Required objects are derived automatically from actor names.
     """
     actors = actors or []
     extra_dl_paths = extra_dl_paths or []
     actor_names = [a["name"] for a in actors]
     object_ids = collect_required_objects(actor_names)
+    if extra_object_ids:
+        object_ids = sorted(set(object_ids) | set(extra_object_ids))
 
     all_dls = [dl_path] + extra_dl_paths
 
@@ -943,24 +958,31 @@ def build_collision(min_x: int = -600, max_x: int = 600,
     for iw in inner_walls:
         x = iw["x"]
         zmin, zmax = iw["z_range"]
-        door = iw["door"]
-        door_top = floor_y + door["height"]
-        door_half = door["half_width"]
+        door = iw.get("door")
 
-        # Three panel quads. Winding order picks the +X normal ("blocks Link
-        # coming from -X side"); we then emit a second poly with reversed
-        # winding for the -X normal so the wall blocks both sides.
-        panels = [
-            # Above the door — full width, top strip from door_top to ceiling.
-            ((x, door_top, zmin),  (x, door_top, zmax),
-             (x, ceiling_y, zmax), (x, ceiling_y, zmin)),
-            # Flank toward +Z (between door and zmax).
-            ((x, floor_y, door_half), (x, floor_y, zmax),
-             (x, door_top, zmax),     (x, door_top, door_half)),
-            # Flank toward -Z (between zmin and door).
-            ((x, floor_y, zmin),   (x, floor_y, -door_half),
-             (x, door_top, -door_half), (x, door_top, zmin)),
-        ]
+        if door is None:
+            # Solid wall — single full-height quad spanning the whole z range.
+            panels = [
+                ((x, floor_y, zmin),   (x, floor_y, zmax),
+                 (x, ceiling_y, zmax), (x, ceiling_y, zmin)),
+            ]
+        else:
+            door_top = floor_y + door["height"]
+            door_half = door["half_width"]
+            # Three panel quads with a centred door cutout. Winding picks
+            # the +X normal; the loop below emits a second poly with
+            # reversed winding for -X so the wall blocks both sides.
+            panels = [
+                # Above the door — full width, top strip from door_top to ceiling.
+                ((x, door_top, zmin),  (x, door_top, zmax),
+                 (x, ceiling_y, zmax), (x, ceiling_y, zmin)),
+                # Flank toward +Z (between door and zmax).
+                ((x, floor_y, door_half), (x, floor_y, zmax),
+                 (x, door_top, zmax),     (x, door_top, door_half)),
+                # Flank toward -Z (between zmin and door).
+                ((x, floor_y, zmin),   (x, floor_y, -door_half),
+                 (x, door_top, -door_half), (x, door_top, zmin)),
+            ]
         for v0, v1, v2, v3 in panels:
             verts.extend([v0, v1, v2, v3])
             a, b, c, d = base_idx, base_idx + 1, base_idx + 2, base_idx + 3
@@ -1090,6 +1112,7 @@ def build_dungeon_o2r(
     include_mario_dl: bool = True,
     include_pizza_dl: bool = True,
     include_sonic_dl: bool = True,
+    include_hydrant_dl: bool = True,
     rooms: list[dict] | None = None,
     inner_walls: list[dict] | None = None,
     transition_actors: list[dict] | None = None,
@@ -1139,6 +1162,10 @@ def build_dungeon_o2r(
     SONIC_VTX_PATH = f"{TARGET}/sonic_Vtx"
     SONIC_DL_PATH = f"{TARGET}/sonic_DL"
 
+    HYDRANT_GLB = ASSETS_3D / "Fire Hydrant.glb"
+    HYDRANT_VTX_PATH = f"{TARGET}/hydrant_Vtx"
+    HYDRANT_DL_PATH = f"{TARGET}/hydrant_DL"
+
     PIZZA_GLB = ASSETS_3D / "pizza.glb"
     PIZZA_VTX_PATH = f"{TARGET}/pizza_Vtx"
     PIZZA_DL_PATH = f"{TARGET}/pizza_DL"
@@ -1150,9 +1177,12 @@ def build_dungeon_o2r(
             actors = _resolve_default_actors()
         rooms = [{"actors": actors, "offset": (0, 0, 0), "skip_walls": set()}]
 
-    # Shared decoration / chest-content assets (Mario, Sonic, Pizza) —
-    # packed once, referenced by all rooms via __OTR__ paths.
-    mario_vtx = mario_dl = sonic_vtx = sonic_dl = pizza_vtx = pizza_dl = None
+    # Shared decoration / chest-content assets (Mario, Sonic, Hydrant,
+    # Pizza) — packed once, referenced by all rooms via __OTR__ paths.
+    mario_vtx = mario_dl = None
+    sonic_vtx = sonic_dl = None
+    hydrant_vtx = hydrant_dl = None
+    pizza_vtx = pizza_dl = None
     if include_mario_dl:
         mario = parse_obj(MARIO_OBJ, scale=200.0, y_offset=35.0, rotation_y_degrees=0.0)
         mario_verts = [(v[0], v[1], v[2]) for v in mario.vertices]
@@ -1171,6 +1201,31 @@ def build_dungeon_o2r(
         print(f"Sonic: {len(sonic.vertices)} verts, {len(sonic.triangles)} tris → "
               f"VTX {len(sonic_vtx)}B, DL {len(sonic_dl)}B")
 
+    if include_hydrant_dl:
+        # scale 14000 brings the hydrant to a usable size (the GLB normalises
+        # into a -1..+1 cube). Source is Z-up (Blender default export), so
+        # rotate -90° on X to make it stand upright in OoT's Y-up world.
+        # The GLB ships an image texture rather than a baseColorFactor, so
+        # trimesh falls back to default_color — fire-engine red here.
+        hydrant = load_mesh(
+            HYDRANT_GLB,
+            scale=14000.0,
+            y_offset=0.0,
+            rotation_deg=(-90.0, 0.0, 0.0),
+            color_override=(220, 30, 30, 255),  # fire-engine red
+            # SoH's room rendering doesn't run real-time lighting on our DL
+            # (G_CC_SHADE uses vertex colours directly). Bake a fake-light
+            # shade per face into the vertex colours so the hydrant reads
+            # as a 3D shape instead of a flat red silhouette.
+            shade_strength=0.6,
+        )
+        hydrant_verts = [(v[0], v[1], v[2]) for v in hydrant.vertices]
+        hydrant_colors = [(v[3], v[4], v[5], v[6]) for v in hydrant.vertices]
+        hydrant_vtx = build_vtx_resource(hydrant_verts, hydrant_colors)
+        hydrant_dl = build_unindexed_dl(HYDRANT_VTX_PATH, len(hydrant.triangles))
+        print(f"Hydrant: {len(hydrant.vertices)} verts, {len(hydrant.triangles)} tris → "
+              f"VTX {len(hydrant_vtx)}B, DL {len(hydrant_dl)}B")
+
     if include_pizza_dl:
         pizza = load_mesh(
             PIZZA_GLB,
@@ -1184,6 +1239,19 @@ def build_dungeon_o2r(
         pizza_dl = build_unindexed_dl(PIZZA_VTX_PATH, len(pizza.triangles))
         print(f"Pizza: {len(pizza.vertices)} verts, {len(pizza.triangles)} tris → "
               f"VTX {len(pizza_vtx)}B, DL {len(pizza_dl)}B")
+
+    # Build a per-room "extra object IDs" map from the transition actors —
+    # En_Door etc. carry their own visual mesh that the *rooms* on either
+    # side of the transition must load even though the actor itself doesn't
+    # appear in either room's ActorList.
+    extra_objects_per_room: dict[int, set[int]] = {}
+    for ta in (transition_actors or []):
+        ta_name = ta["actor_name"]
+        if ta_name not in ACTOR_LIBRARY:
+            continue
+        objs = ACTOR_LIBRARY[ta_name][2]
+        for room_idx in (ta["front_room"], ta["back_room"]):
+            extra_objects_per_room.setdefault(room_idx, set()).update(objs)
 
     # Per-room: build dedicated VTX, DL and room-header resource.
     room_paths: list[str] = []
@@ -1207,7 +1275,10 @@ def build_dungeon_o2r(
         faces = build_box_faces(n_faces)
         vtx_res = build_vtx_resource(verts, cols)
         dl_res = build_display_list(vtx_path, len(verts), faces)
-        room_res = build_room_header(dl_path, actors=room_actors)
+        room_res = build_room_header(
+            dl_path, actors=room_actors,
+            extra_object_ids=sorted(extra_objects_per_room.get(i, set())),
+        )
         room_assets.append((vtx_path, vtx_res, dl_path, dl_res, room_path, room_res))
 
     # Collision bounds = union of all rooms' visual extents. With no shared
@@ -1259,6 +1330,9 @@ def build_dungeon_o2r(
         if sonic_vtx is not None:
             oz.writestr(SONIC_VTX_PATH, sonic_vtx)
             oz.writestr(SONIC_DL_PATH, sonic_dl)
+        if hydrant_vtx is not None:
+            oz.writestr(HYDRANT_VTX_PATH, hydrant_vtx)
+            oz.writestr(HYDRANT_DL_PATH, hydrant_dl)
         if pizza_vtx is not None:
             oz.writestr(PIZZA_VTX_PATH, pizza_vtx)
             oz.writestr(PIZZA_DL_PATH, pizza_dl)
@@ -1294,10 +1368,7 @@ def main():
     # opening. Still no transition actor, so room culling won't switch
     # between rooms yet.
     DOOR_SPEC = {"half_width": 60, "height": 200}
-    # Room 1 actors live in world coords (room 1 is offset +1200 in X). A
-    # small "reward room" layout: pots in the corners, a heart-piece chest
-    # facing the door so the player walks straight up to it, and two keese
-    # for some movement.
+    # Room 1 actors (offset +1200 X, world coords). Sonic chest reward.
     room1_actors = [
         {"name": "pot", "x":  800, "y": -100, "z": -400},
         {"name": "pot", "x": 1600, "y": -100, "z": -400},
@@ -1309,30 +1380,63 @@ def main():
         {"name": "keese", "x": 1300, "y":   50, "z": -200},
         {"name": "keese", "x": 1500, "y":   50, "z":  300},
     ]
+    # Room 2 actors (offset -1200 X). Saber chest reward.
+    room2_actors = [
+        {"name": "pot",   "x": -1600, "y": -100, "z": -400},
+        {"name": "pot",   "x":  -800, "y": -100, "z": -400},
+        {"name": "pot",   "x":  -800, "y": -100, "z":  400},
+        {"name": "pot",   "x": -1600, "y": -100, "z":  400},
+        {"name": "chest", "x": -1500, "y": -100, "z": 0,
+         "rot_y": 0xC000,  # facing -X (away from door) — same convention as Sonic
+         "params": chest_params(item_id=GI_LIVEGEN_HYDRANT, treasure_flag=5)},
+        {"name": "keese", "x": -1300, "y":   50, "z":  300},
+        {"name": "keese", "x": -1500, "y":   50, "z": -200},
+    ]
     rooms = [
         {
             "actors": _resolve_default_actors(),
             "offset": (0, 0, 0),
-            "doors": {"east": DOOR_SPEC},  # shared boundary at x=+600
+            "doors": {"east": DOOR_SPEC, "west": DOOR_SPEC},  # both shared walls
         },
         {
             "actors": room1_actors,
             "offset": (1200, 0, 0),         # 2*w east of room 0 → walls coincide at x=+600
             "doors": {"west": DOOR_SPEC},
         },
+        {
+            "actors": room2_actors,
+            "offset": (-1200, 0, 0),        # 2*w west of room 0 → walls coincide at x=-600
+            "doors": {"east": DOOR_SPEC},
+        },
     ]
+    # Inner walls — collision treatment differs by transition actor:
+    #   - En_Holl: invisible plane trigger, Link walks through the hole.
+    #     The collision needs a matching cutout so he can pass.
+    #   - En_Door: visible door + cutscene-driven transition. The actor has
+    #     no collision of its own; the wall around the door does the
+    #     blocking, the cutscene + transition handle the actual move. So
+    #     this wall stays solid (no door cutout).
     inner_walls = [
-        {"x": 600, "z_range": (-1500, 1500), "door": DOOR_SPEC},
+        {"x":  600, "z_range": (-1500, 1500), "door": DOOR_SPEC},  # En_Holl side
+        {"x": -600, "z_range": (-1500, 1500)},                      # En_Door side
     ]
-    # En_Holl is an invisible plane trigger that fires the room transition
-    # when Link walks through it. Place at the door hole (world (600,-100,0))
-    # at floor level so Link's actor-local Y stays inside En_Holl's trigger
-    # range (PLANE_Y_MIN=-50, PLANE_Y_MAX=200 are checked against
-    # link.y - actor.y; with both at floor that's local Y=0).
+    # Two transition actors: En_Holl (invisible) for R0↔R1, En_Door (visible
+    # wood door, A-press cutscene) for R0↔R2. Both placed at floor level so
+    # Link's actor-local Y stays in the trigger range (PLANE_Y_MIN=-50,
+    # PLANE_Y_MAX=200 are checked against link.y - actor.y).
     transition_actors = [
         {"actor_name": "en_holl", "front_room": 0, "back_room": 1,
-         "x": 600, "y": -100, "z": 0,
-         "rot_y": 0x4000,  # facing +X — the trigger plane is perpendicular
+         "x":  600, "y": -100, "z": 0,
+         "rot_y": 0x4000,
+         "params": 0x0000},
+        {"actor_name": "en_door", "front_room": 0, "back_room": 2,
+         "x": -600, "y": -100, "z": 0,
+         "rot_y": 0xC000,  # facing -X — door opens away from Room 0
+         # params=0 → door type 0, normal openable wood door. Loads
+         # gameplay_keep (auto-included for every scene) for the mesh; the
+         # OBJECT_GAMEPLAY_FIELD_KEEP we declare in the room ObjectList
+         # exists for door types that explicitly need it (5, 6, …) but
+         # those turned out to spawn talking signs in our setup.
          "params": 0x0000},
     ]
     # Spawn Link near the south end of Room 0 facing north — same "front of
@@ -1341,7 +1445,8 @@ def main():
     build_dungeon_o2r(output, rooms=rooms, inner_walls=inner_walls,
                       transition_actors=transition_actors,
                       spawn_pos=(0, 0, 1300), spawn_rot_y=0x8000)
-    print("Complete override: Scene + 2 Rooms + DLs + VTXs + Collision + En_Holl")
+    print(f"Complete override: Scene + {len(rooms)} Rooms + DLs + VTXs "
+          f"+ Collision + {len(transition_actors)} TransitionActors")
 
 
 if __name__ == "__main__":
