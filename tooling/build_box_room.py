@@ -1240,18 +1240,28 @@ def build_dungeon_o2r(
         print(f"Pizza: {len(pizza.vertices)} verts, {len(pizza.triangles)} tris → "
               f"VTX {len(pizza_vtx)}B, DL {len(pizza_dl)}B")
 
-    # Build a per-room "extra object IDs" map from the transition actors —
-    # En_Door etc. carry their own visual mesh that the *rooms* on either
-    # side of the transition must load even though the actor itself doesn't
-    # appear in either room's ActorList.
-    extra_objects_per_room: dict[int, set[int]] = {}
+    # `func_80031A28` (the actor cleanup pass triggered by every Room's
+    # ObjectList command) Actor_Kills any actor whose required object
+    # isn't in the new room's ObjectList. That breaks two things in
+    # multi-room scenes:
+    #   1. Transition actors (En_Door, En_Holl) crossing rooms.
+    #   2. Room-N actors that briefly co-exist with a different room
+    #      becoming "loaded" — e.g. a Deku Baba in Room 0 dies the moment
+    #      Link approaches the En_Holl trigger to Room 1 because Room 1's
+    #      ObjectList lacks the Deku Baba object.
+    # Sidestep both by giving every room the union of every transition
+    # actor's *and* every room actor's required objects. Memory hit is
+    # negligible for the debug scene; vanilla scenes pay this cost too
+    # via the always-loaded gameplay_keep / gameplay_dangeon_keep set.
+    shared_objects: set[int] = set()
     for ta in (transition_actors or []):
         ta_name = ta["actor_name"]
-        if ta_name not in ACTOR_LIBRARY:
-            continue
-        objs = ACTOR_LIBRARY[ta_name][2]
-        for room_idx in (ta["front_room"], ta["back_room"]):
-            extra_objects_per_room.setdefault(room_idx, set()).update(objs)
+        if ta_name in ACTOR_LIBRARY:
+            shared_objects.update(ACTOR_LIBRARY[ta_name][2])
+    for r in rooms:
+        for a in r.get("actors", []):
+            if a["name"] in ACTOR_LIBRARY:
+                shared_objects.update(ACTOR_LIBRARY[a["name"]][2])
 
     # Per-room: build dedicated VTX, DL and room-header resource.
     room_paths: list[str] = []
@@ -1277,7 +1287,7 @@ def build_dungeon_o2r(
         dl_res = build_display_list(vtx_path, len(verts), faces)
         room_res = build_room_header(
             dl_path, actors=room_actors,
-            extra_object_ids=sorted(extra_objects_per_room.get(i, set())),
+            extra_object_ids=sorted(shared_objects),
         )
         room_assets.append((vtx_path, vtx_res, dl_path, dl_res, room_path, room_res))
 
