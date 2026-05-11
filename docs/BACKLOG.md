@@ -61,6 +61,21 @@ XETO-Textures, G_SETTIMG_OTR_HASH, Tile-Setup, Theme-Atlas.
 ### M10 — Polish
 Streaming-UI, Debug-Overlay, Sound, Custom Lighting, Caching, Save/Load.
 
+### M11 — Animation Pipeline
+Skinned Meshes mit OoT-`SkelAnime`-Daten. Heute backt `mesh_to_dl.py` nur
+einen statischen Rest-Pose-DL — die Maus-GLB in Room 2 trägt z.B. 3 Anims
+(idle/run/jump) + 413-Node-Skelett, die alle ungenutzt bleiben. Schritte:
+1. Skin/Joint-Hierarchie + Inverse-Bind-Matrizen aus GLB extrahieren →
+   Limb-Tree-Struktur (vergleichbar mit OoT-Standard-`SkelLimbHeader`).
+2. Pro Limb eigenes DL emitten (heute alles in einem flachen Mesh).
+3. Animation-Tracks (Translation/Rotation pro Joint pro Frame) in
+   OoT-Pose-Format umwandeln.
+4. Custom-Actor mit `SkelAnime_Update` + DrawFunc statt Decoration-DL —
+   Decorations sind Static-Draws ohne Update-Lifecycle.
+
+Voraussetzung: M9 (Texturen), sonst sieht jeder skinned Mesh weiter
+flach-shadiert aus.
+
 ### v1.0 — Custom Dungeon Showcase
 5–7 Räume + Mini-Boss + Boss + Item-Logik, durchspielbar.
 
@@ -68,6 +83,22 @@ Streaming-UI, Debug-Overlay, Sound, Custom Lighting, Caching, Save/Load.
 
 ## Nice-to-have / Future Ideas
 
+- **Dynamic Deco-Registry** — `LiveGenDecoration.cpp` hardcoded heute zwei
+  Display-Lists mit Welt-X-Ranges (Pizza/Cupcake im 3-Raum-Debug-Setup).
+  Sobald das LLM Räume baut, kennt der C++-Code weder die Anzahl noch die
+  Layouts. Drei Optionen, in steigender Sauberkeit:
+  1. **Build-time-Header**: `tooling/build_box_room.py` emittiert beim
+     Compile zusätzlich einen `decoration_table.h` mit den Ranges, der
+     mit dem nächsten SoH-Build mit reinkommt. Schnell zu bauen, aber
+     Hot-Reload braucht trotzdem Game-Restart.
+  2. **Daten im `.o2r`**: Eigener Resource-Type `DecorationList` neben
+     Scene/Room. Sidecar packt das mit, SoH lädt es zur Laufzeit. Echtes
+     Hot-Reload möglich, aber neuer Resource-Factory-Code im Fork.
+  3. **Deko als echter Actor**: Custom-Actor in der LLM-Scene, dessen
+     `room`-Feld die Vanilla-Cull-Logik (`func_80031A28`,
+     `Actor_UpdateAll` mit room-mask) übernimmt. Kein neuer Daten-Channel,
+     keine custom Cull-Heuristik im Render-Hook nötig — der Actor-Layer
+     macht es richtig. Zielbild ab M8+.
 - **Dynamic N64 music per dungeon** — LLM komponiert MIDI mit N64-Sound-
   Bänken passend zum Dungeon-Theme. Schließt die "alles passt zusammen"-
   Lücke, weil sceneNum=0 sonst immer Deku-Tree-Musik liefert. Siehe

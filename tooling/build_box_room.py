@@ -1113,6 +1113,8 @@ def build_dungeon_o2r(
     include_pizza_dl: bool = True,
     include_sonic_dl: bool = True,
     include_hydrant_dl: bool = True,
+    include_cupcake_dl: bool = True,
+    include_mouse_dl: bool = True,
     rooms: list[dict] | None = None,
     inner_walls: list[dict] | None = None,
     transition_actors: list[dict] | None = None,
@@ -1170,6 +1172,14 @@ def build_dungeon_o2r(
     PIZZA_VTX_PATH = f"{TARGET}/pizza_Vtx"
     PIZZA_DL_PATH = f"{TARGET}/pizza_DL"
 
+    CUPCAKE_GLB = ASSETS_3D / "cupcake.glb"
+    CUPCAKE_VTX_PATH = f"{TARGET}/cupcake_Vtx"
+    CUPCAKE_DL_PATH = f"{TARGET}/cupcake_DL"
+
+    MOUSE_GLB = ASSETS_3D / "mouse.glb"
+    MOUSE_VTX_PATH = f"{TARGET}/mouse_Vtx"
+    MOUSE_DL_PATH = f"{TARGET}/mouse_DL"
+
     # Normalise to multi-room shape so the rest of the function has a single
     # code path. Single-room scenes are just a 1-element rooms list.
     if rooms is None:
@@ -1178,11 +1188,13 @@ def build_dungeon_o2r(
         rooms = [{"actors": actors, "offset": (0, 0, 0), "skip_walls": set()}]
 
     # Shared decoration / chest-content assets (Mario, Sonic, Hydrant,
-    # Pizza) — packed once, referenced by all rooms via __OTR__ paths.
+    # Pizza, Cupcake) — packed once, referenced by all rooms via __OTR__ paths.
     mario_vtx = mario_dl = None
     sonic_vtx = sonic_dl = None
     hydrant_vtx = hydrant_dl = None
     pizza_vtx = pizza_dl = None
+    cupcake_vtx = cupcake_dl = None
+    mouse_vtx = mouse_dl = None
     if include_mario_dl:
         mario = parse_obj(MARIO_OBJ, scale=200.0, y_offset=35.0, rotation_y_degrees=0.0)
         mario_verts = [(v[0], v[1], v[2]) for v in mario.vertices]
@@ -1239,6 +1251,46 @@ def build_dungeon_o2r(
         pizza_dl = build_unindexed_dl(PIZZA_VTX_PATH, len(pizza.triangles))
         print(f"Pizza: {len(pizza.vertices)} verts, {len(pizza.triangles)} tris → "
               f"VTX {len(pizza_vtx)}B, DL {len(pizza_dl)}B")
+
+    if include_cupcake_dl:
+        # Same scale as pizza — GLB normalised mesh, ~100-unit on-screen size.
+        # Source is Z-up (Blender default export); rotate -90° on X to bring
+        # the cupcake upright in OoT's Y-up world.
+        cupcake = load_mesh(
+            CUPCAKE_GLB,
+            scale=14000.0,
+            y_offset=0.0,
+            rotation_deg=(-90.0, 0.0, 0.0),
+        )
+        cupcake_verts = [(v[0], v[1], v[2]) for v in cupcake.vertices]
+        cupcake_colors = [(v[3], v[4], v[5], v[6]) for v in cupcake.vertices]
+        cupcake_vtx = build_vtx_resource(cupcake_verts, cupcake_colors)
+        cupcake_dl = build_unindexed_dl(CUPCAKE_VTX_PATH, len(cupcake.triangles))
+        print(f"Cupcake: {len(cupcake.vertices)} verts, {len(cupcake.triangles)} tris → "
+              f"VTX {len(cupcake_vtx)}B, DL {len(cupcake_dl)}B")
+
+    if include_mouse_dl:
+        # GLB carries 3 PNG textures + a skinned skeleton with idle/run/jump
+        # animations. None of that is supported by our static-DL path yet
+        # (texture sampling = M9, skeletal animation = M11 / future). We bake
+        # the rest pose into a flat-shaded DL with the diffuse texture's
+        # average colour as a stand-in. Scale picked empirically against the
+        # other decorations — 4.91-unit-long mesh stays visible without
+        # dwarfing the room.
+        mouse = load_mesh(
+            MOUSE_GLB,
+            scale=167.0,
+            y_offset=0.0,
+            rotation_deg=(0.0, 0.0, 0.0),
+            color_override=(198, 172, 169, 255),  # diffuse-texture average
+            shade_strength=0.6,
+        )
+        mouse_verts = [(v[0], v[1], v[2]) for v in mouse.vertices]
+        mouse_colors = [(v[3], v[4], v[5], v[6]) for v in mouse.vertices]
+        mouse_vtx = build_vtx_resource(mouse_verts, mouse_colors)
+        mouse_dl = build_unindexed_dl(MOUSE_VTX_PATH, len(mouse.triangles))
+        print(f"Mouse: {len(mouse.vertices)} verts, {len(mouse.triangles)} tris → "
+              f"VTX {len(mouse_vtx)}B, DL {len(mouse_dl)}B")
 
     # `func_80031A28` (the actor cleanup pass triggered by every Room's
     # ObjectList command) Actor_Kills any actor whose required object
@@ -1346,6 +1398,12 @@ def build_dungeon_o2r(
         if pizza_vtx is not None:
             oz.writestr(PIZZA_VTX_PATH, pizza_vtx)
             oz.writestr(PIZZA_DL_PATH, pizza_dl)
+        if cupcake_vtx is not None:
+            oz.writestr(CUPCAKE_VTX_PATH, cupcake_vtx)
+            oz.writestr(CUPCAKE_DL_PATH, cupcake_dl)
+        if mouse_vtx is not None:
+            oz.writestr(MOUSE_VTX_PATH, mouse_vtx)
+            oz.writestr(MOUSE_DL_PATH, mouse_dl)
         oz.writestr(COLLISION_PATH, collision)
         oz.writestr(SCENE_PATH, scene_header)
 
@@ -1377,7 +1435,15 @@ def main():
     # blocked from walking through the wall except through the door
     # opening. Still no transition actor, so room culling won't switch
     # between rooms yet.
-    DOOR_SPEC = {"half_width": 60, "height": 200}
+    # En_Holl side stays at the wider 120×200 opening — the invisible plane
+    # triggers fade-curtain at that size and the user has confirmed it reads
+    # correctly. En_Door side is much smaller because the visible door panel
+    # (gDoorLeftDL ≈ 60 wide × 100 tall) needs to fully cover the wall hole;
+    # otherwise you see a black frame around the door before the open
+    # cutscene starts and can peek into the next room as soon as the panel
+    # begins swinging.
+    DOOR_SPEC_HOLL = {"half_width": 60, "height": 200}
+    DOOR_SPEC_DOOR = {"half_width": 30, "height": 100}
     # Room 1 actors (offset +1200 X, world coords). Sonic chest reward.
     room1_actors = [
         {"name": "pot", "x":  800, "y": -100, "z": -400},
@@ -1406,17 +1472,19 @@ def main():
         {
             "actors": _resolve_default_actors(),
             "offset": (0, 0, 0),
-            "doors": {"east": DOOR_SPEC, "west": DOOR_SPEC},  # both shared walls
+            # East = En_Holl (Room 1), West = En_Door (Room 2) — different
+            # opening sizes per side so each transition's visual fits.
+            "doors": {"east": DOOR_SPEC_HOLL, "west": DOOR_SPEC_DOOR},
         },
         {
             "actors": room1_actors,
             "offset": (1200, 0, 0),         # 2*w east of room 0 → walls coincide at x=+600
-            "doors": {"west": DOOR_SPEC},
+            "doors": {"west": DOOR_SPEC_HOLL},
         },
         {
             "actors": room2_actors,
             "offset": (-1200, 0, 0),        # 2*w west of room 0 → walls coincide at x=-600
-            "doors": {"east": DOOR_SPEC},
+            "doors": {"east": DOOR_SPEC_DOOR},
         },
     ]
     # Inner walls — collision treatment differs by transition actor:
@@ -1427,8 +1495,8 @@ def main():
     #     blocking, the cutscene + transition handle the actual move. So
     #     this wall stays solid (no door cutout).
     inner_walls = [
-        {"x":  600, "z_range": (-1500, 1500), "door": DOOR_SPEC},  # En_Holl side
-        {"x": -600, "z_range": (-1500, 1500)},                      # En_Door side
+        {"x":  600, "z_range": (-1500, 1500), "door": DOOR_SPEC_HOLL},  # En_Holl side
+        {"x": -600, "z_range": (-1500, 1500)},                          # En_Door side (solid)
     ]
     # Two transition actors: En_Holl (invisible) for R0↔R1, En_Door (visible
     # wood door, A-press cutscene) for R0↔R2. Both placed at floor level so

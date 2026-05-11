@@ -1,6 +1,6 @@
 [project]
 name = "livegen"
-version = "0.6.0"
+version = "0.7.0"
 description = "LLM-powered dungeon generator sidecar for Ship of Harkinian"
 requires-python = ">=3.12"
 dependencies = [
