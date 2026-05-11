@@ -292,6 +292,11 @@ def build_display_list(vtx_path: str, vtx_count: int, faces: list) -> bytes:
     """Build a TLDO display list that renders vertex-colored triangles.
 
     Uses G_VTX_OTR_HASH (0x32) to reference vertex data by CRC64 hash.
+    Splits the load into batches of ≤64 verts (F3DEX2's MAX_VERTICES) so
+    meshes larger than the vertex buffer still render correctly. Assumes a
+    QUAD-ALIGNED face layout: faces[2q] and faces[2q+1] are the two tris of
+    quad q, which uses sequential verts (4q, 4q+1, 4q+2, 4q+3) — same shape
+    build_box_faces produces. Each batch loads up to 16 quads (64 verts).
     """
     vtx_hash = crc64(vtx_path)
 
@@ -301,53 +306,65 @@ def build_display_list(vtx_path: str, vtx_count: int, faces: list) -> bytes:
     cmds += gfx_le(G_RDPPIPESYNC << 24, 0)
 
     # 2. Set cycle type to 1-cycle
-    #    gsSPSetOtherMode(G_SETOTHERMODE_H, sft=20, len=2, data=0)
     cmds += gfx_le(
         (G_SETOTHERMODE_H << 24) | ((32 - 20 - 2) << 8) | (2 - 1),
         0  # G_CYC_1CYCLE = 0
     )
 
-    # 3. Set render mode: AA + Z-buffer + opaque surface (proper depth rendering)
+    # 3. Set render mode: AA + Z-buffer + opaque surface
     cmds += gfx_le(
         (G_SETOTHERMODE_L << 24) | ((32 - 3 - 29) << 8) | (29 - 1),
         RENDERMODE_AA_ZB_OPA
     )
 
-    # 4. Load geometry mode: Z-buffer + smooth shaded vertex colors + cull back
-    #    G_CULL_BACK in F3DEX2 = 0x00000400 (bit 10)
+    # 4. Geometry mode: Z-buffer + smooth shaded vertex colors + cull back
     G_CULL_BACK = 0x00000400
     geom_flags = G_ZBUFFER | G_SHADE | G_SHADING_SMOOTH | G_CULL_BACK
     cmds += gfx_le(G_GEOMETRYMODE << 24, geom_flags)
 
-    # 5. Set combiner to G_CC_SHADE (use vertex colors)
-    #    Formula: (0-0)*0+SHADE = SHADE for color, same for alpha
-    #    GCCc0w1(0,4,0,4)=0x20800, GCCc1w1(0,4,0,0,0,4)=0x104 → w1=0x00020904
+    # 5. Combiner: G_CC_SHADE (use vertex colors only)
     cmds += gfx_le(0xFC000000, 0x00020904)
 
-    # 6. G_VTX_OTR_HASH — load all vertices in single batch (works for ≤32 verts)
-    buf_idx = 0
-    w0_vtx = (G_VTX_OTR_HASH << 24) | (vtx_count << 12) | ((buf_idx + vtx_count) << 1)
-    cmds += gfx_le(w0_vtx, 0)
     hash_hi = (vtx_hash >> 32) & 0xFFFFFFFF
     hash_lo = vtx_hash & 0xFFFFFFFF
-    cmds += gfx_le(hash_hi, hash_lo)
 
-    # 7. Triangles — G_TRI2 for pairs, G_TRI1 for leftover (indexed mesh)
-    for i in range(0, len(faces), 2):
-        f1 = faces[i]
-        if i + 1 < len(faces):
-            f2 = faces[i + 1]
+    # 6. Batched vertex loads + triangles. Each batch:
+    #   - G_VTX_OTR_HASH with w1 = byte offset into the resource (each vert
+    #     is 16 bytes), so subsequent batches load later chunks of the same
+    #     VTX resource into buffer slots 0..n. The engine masks `end` to
+    #     7 bits and computes dst=end-n, so n must stay ≤ MAX_VERTICES=64
+    #     OR end would wrap and write garbage memory.
+    #   - TRI1/TRI2 commands reference BUFFER-LOCAL indices (0..n-1) which
+    #     map to resource verts (vert_start..vert_start+n-1).
+    n_quads = len(faces) // 2
+    QUADS_PER_BATCH = 16  # 64 verts ÷ 4 verts/quad
+    for batch_start_q in range(0, max(n_quads, 1), QUADS_PER_BATCH):
+        batch_end_q = min(batch_start_q + QUADS_PER_BATCH, n_quads)
+        quads_in_batch = batch_end_q - batch_start_q
+        if quads_in_batch == 0:
+            break
+        verts_in_batch = quads_in_batch * 4
+        vert_start = batch_start_q * 4
+        byte_offset = vert_start * 16   # F3DVtx is 16 bytes
+
+        w0_vtx = (G_VTX_OTR_HASH << 24) | (verts_in_batch << 12) | (verts_in_batch << 1)
+        cmds += gfx_le(w0_vtx, byte_offset)
+        cmds += gfx_le(hash_hi, hash_lo)
+
+        # Emit two tris per quad (TRI2), remapping global vert indices into
+        # buffer-local indices (0..63) by subtracting vert_start.
+        for q_local in range(quads_in_batch):
+            q_global = batch_start_q + q_local
+            t1 = faces[q_global * 2]
+            t2 = faces[q_global * 2 + 1]
+            l1 = (t1[0] - vert_start, t1[1] - vert_start, t1[2] - vert_start)
+            l2 = (t2[0] - vert_start, t2[1] - vert_start, t2[2] - vert_start)
             cmds += gfx_le(
-                (G_TRI2 << 24) | (f1[0] * 2 << 16) | (f1[1] * 2 << 8) | (f1[2] * 2),
-                (f2[0] * 2 << 16) | (f2[1] * 2 << 8) | (f2[2] * 2)
-            )
-        else:
-            cmds += gfx_le(
-                (G_TRI1 << 24) | (f1[0] * 2 << 16) | (f1[1] * 2 << 8) | (f1[2] * 2),
-                0
+                (G_TRI2 << 24) | (l1[0] * 2 << 16) | (l1[1] * 2 << 8) | (l1[2] * 2),
+                (l2[0] * 2 << 16) | (l2[1] * 2 << 8) | (l2[2] * 2)
             )
 
-    # 8. End display list
+    # 7. End display list
     cmds += gfx_le(G_ENDDL << 24, 0)
 
     # Build TLDO resource
@@ -1414,6 +1431,951 @@ def build_dungeon_o2r(
     return output
 
 
+def _build_l_shape_geometry(arm_a, arm_b, floor_y, h):
+    """Emit visual mesh + collision data for an L-shape room.
+
+    Arm A is the south arm (player spawns at its south end facing north).
+    Arm B sticks east from the NORTH end of Arm A so the "corner" is in
+    front of the player. Walking conventions:
+        +X = east, -X = west, +Z = south, -Z = north (matches OoT spawn
+        convention where rot_y=0x8000 looks toward -Z).
+
+    Args:
+        arm_a: {"x_range": (min, max), "z_range": (min, max)} — south arm.
+        arm_b: same shape — east extension at the north end of Arm A.
+    Returns:
+        (verts, colors, n_faces, floor_rects, perimeter)
+        - verts/colors/n_faces: feed into build_box_faces + build_vtx_resource
+          + build_display_list.
+        - floor_rects: [(x_min, x_max, z_min, z_max)] decomposition for
+          floor/ceiling collision.
+        - perimeter: list of (p_start, p_end) outer-wall segments wound CCW
+          from above with interior on the right — same convention the box
+          builder uses for the four cardinal walls.
+    """
+    ax_min, ax_max = arm_a["x_range"]
+    az_min, az_max = arm_a["z_range"]
+    bx_min, bx_max = arm_b["x_range"]
+    bz_min, bz_max = arm_b["z_range"]
+    assert bx_min == ax_max, "Arm B's west edge must align with Arm A's east"
+    assert bz_min == az_min, "Arms must share the north edge"
+    assert bz_max < az_max, "Arm B's south edge must be inside Arm A's z range"
+    ceiling_y = floor_y + h
+
+    # Per-face fake-light shading so adjacent walls don't blend into one
+    # flat blob. Same idea as mesh_to_dl.shade_strength: dot the surface
+    # normal with a fixed light direction, modulate the base colour. Light
+    # comes from above + slightly NE, so the west/south walls read lighter
+    # than the east/north ones and corners become visible.
+    LIGHT_DIR  = (0.4, 0.8, -0.4)
+    SHADE_STRENGTH = 0.55
+    _lmag = math.sqrt(sum(c * c for c in LIGHT_DIR)) or 1.0
+    _lx, _ly, _lz = (c / _lmag for c in LIGHT_DIR)
+
+    def shade(base_color, normal):
+        nx, ny, nz = normal
+        nmag = math.sqrt(nx * nx + ny * ny + nz * nz) or 1.0
+        nx, ny, nz = nx / nmag, ny / nmag, nz / nmag
+        dot = nx * _lx + ny * _ly + nz * _lz
+        s = 1.0 - SHADE_STRENGTH * (1.0 - 0.5 * (dot + 1.0))
+        s = max(0.0, min(1.0, s))
+        return (int(base_color[0] * s), int(base_color[1] * s),
+                int(base_color[2] * s), base_color[3])
+
+    floor_base   = (130, 200, 120, 255)  # warm green
+    ceiling_base = (110, 110, 140, 255)  # cool blue-gray
+    floor_color   = shade(floor_base,   normal=(0,  1, 0))
+    ceiling_color = shade(ceiling_base, normal=(0, -1, 0))
+
+    # Per-segment wall palette — vivid scheme like build_box_vertices so
+    # adjacent walls along the same compass direction (W and S, or E1 and
+    # E2) don't collapse into one tone. Shading still applies on top so
+    # corners read as distinct planes. Order matches the perimeter list
+    # below: W, N, E1, S1, E2, S.
+    wall_palette = [
+        ( 60, 200, 200, 255),  # W   — cyan
+        ( 60, 100, 220, 255),  # N   — blue
+        (200,  60, 200, 255),  # E1  — magenta
+        (220, 200,  60, 255),  # S1  — yellow (reflex inner south)
+        (200, 120,  60, 255),  # E2  — orange (south arm east)
+        (160, 220,  60, 255),  # S   — lime
+    ]
+
+    # Outer-wall perimeter, CCW from above with interior on the RIGHT —
+    # matches the build_box_vertices west-wall convention so the existing
+    # start_floor / end_floor / end_ceil / start_ceil winding renders the
+    # inside face. With +Z=south, walking south→north means going -Z.
+    perimeter = [
+        ((ax_min, az_max), (ax_min, az_min)),  # W:  SW → NW (going -Z)
+        ((ax_min, az_min), (bx_max, az_min)),  # N:  NW → NE (going +X)
+        ((bx_max, az_min), (bx_max, bz_max)),  # E1: NE → SE-of-B (going +Z)
+        ((bx_max, bz_max), (ax_max, bz_max)),  # S1: reflex turn (going -X)
+        ((ax_max, bz_max), (ax_max, az_max)),  # E2: south arm east (going +Z)
+        ((ax_max, az_max), (ax_min, az_max)),  # S:  SE → SW (going -X)
+    ]
+
+    # Floor/ceiling rectangles. Decompose the L into two non-overlapping
+    # rects so we can reuse the box floor/ceiling winding directly.
+    floor_rects = [
+        (ax_min, ax_max, az_min, az_max),  # full south arm
+        (ax_max, bx_max, bz_min, bz_max),  # east-arm extension
+    ]
+
+    verts: list[tuple[int, int, int]] = []
+    colors: list[tuple[int, int, int, int]] = []
+    n_faces = 0
+
+    def push_quad(quad, color):
+        nonlocal n_faces
+        for v in quad:
+            verts.append(v)
+            colors.append(color)
+        n_faces += 1
+
+    for x0, x1, z0, z1 in floor_rects:
+        # Floor (normal +Y). Same winding as the box-room floor:
+        # (x0, fy, z1) (x1, fy, z1) (x1, fy, z0) (x0, fy, z0) — CCW from above.
+        push_quad([
+            (x0, floor_y, z1), (x1, floor_y, z1),
+            (x1, floor_y, z0), (x0, floor_y, z0),
+        ], floor_color)
+        # Ceiling (normal -Y). Mirror winding.
+        push_quad([
+            (x0, ceiling_y, z0), (x1, ceiling_y, z0),
+            (x1, ceiling_y, z1), (x0, ceiling_y, z1),
+        ], ceiling_color)
+
+    # Walls: for each perimeter segment (s → e, interior on the right), emit
+    # the inward-facing quad as (s_floor, e_floor, e_ceil, s_ceil) — same
+    # pattern as the west wall in build_box_vertices. Per-wall normal feeds
+    # the shader so corners between adjacent walls read as distinct planes
+    # instead of one flat surface.
+    for idx, ((sx, sz), (ex, ez)) in enumerate(perimeter):
+        dx, dz = ex - sx, ez - sz
+        # Inward normal: walking start→end with interior on the right, the
+        # normal is the segment direction rotated 90° clockwise in the XZ
+        # plane (top-down view, +X east, +Z south).
+        if dx == 0:
+            n = (1, 0, 0) if dz < 0 else (-1, 0, 0)
+        else:
+            n = (0, 0, 1) if dx > 0 else (0, 0, -1)
+        push_quad([
+            (sx, floor_y,   sz),
+            (ex, floor_y,   ez),
+            (ex, ceiling_y, ez),
+            (sx, ceiling_y, sz),
+        ], shade(wall_palette[idx], n))
+
+    return verts, colors, n_faces, floor_rects, perimeter
+
+
+def _build_l_shape_collision(floor_rects, perimeter, floor_y, h,
+                             interior_walls=None) -> bytes:
+    """Collision body for a room with N floor rects + outer perimeter walls +
+    optional interior walls (two-sided partitions).
+
+    Args:
+        floor_rects:    list of (x_min, x_max, z_min, z_max) for floor/ceiling.
+        perimeter:      outer-wall segments, CCW from above, interior on right.
+        interior_walls: optional list of (start, end) segments. Each emits
+                        TWO polys with opposite normals so it blocks from
+                        both sides (no implicit "interior" direction).
+    """
+    interior_walls = interior_walls or []
+    ceiling_y = floor_y + h
+    header = build_resource_header(RES_COLLISION)
+
+    NX_POS = 0x7FFF; NX_NEG = 0x8001
+    NY_POS = 0x7FFF; NY_NEG = 0x8001
+    NZ_POS = 0x7FFF; NZ_NEG = 0x8001
+
+    # Bounds for the AABB header.
+    all_x = [p for r in floor_rects for p in (r[0], r[1])]
+    all_z = [p for r in floor_rects for p in (r[2], r[3])]
+    min_x, max_x = min(all_x), max(all_x)
+    min_z, max_z = min(all_z), max(all_z)
+
+    body = bytearray()
+    body += struct.pack('<hhh', min_x, floor_y,   min_z)
+    body += struct.pack('<hhh', max_x, ceiling_y, max_z)
+
+    verts: list[tuple[int, int, int]] = []
+    polys: list[tuple] = []
+
+    def add_v(v: tuple[int, int, int]) -> int:
+        verts.append(v)
+        return len(verts) - 1
+
+    # Floor + ceiling polys (2 tris per rect each).
+    for x0, x1, z0, z1 in floor_rects:
+        v_f = [
+            add_v((x0, floor_y, z0)),
+            add_v((x1, floor_y, z0)),
+            add_v((x1, floor_y, z1)),
+            add_v((x0, floor_y, z1)),
+        ]
+        polys.append((0, v_f[0], v_f[2], v_f[1], 0, NY_POS, 0, -floor_y))
+        polys.append((0, v_f[0], v_f[3], v_f[2], 0, NY_POS, 0, -floor_y))
+        v_c = [
+            add_v((x0, ceiling_y, z0)),
+            add_v((x1, ceiling_y, z0)),
+            add_v((x1, ceiling_y, z1)),
+            add_v((x0, ceiling_y, z1)),
+        ]
+        polys.append((0, v_c[0], v_c[1], v_c[2], 0, NY_NEG, 0, ceiling_y))
+        polys.append((0, v_c[0], v_c[2], v_c[3], 0, NY_NEG, 0, ceiling_y))
+
+    # Wall polys — one quad per perimeter segment, split into 2 tris.
+    # Perimeter walks CCW from above (interior on the right), so the inward
+    # normal for each axis-aligned segment is determined by walking direction:
+    #   going north (dz<0) → interior is east → nx=+X
+    #   going south (dz>0) → interior is west → nx=-X
+    #   going east  (dx>0) → interior is south → nz=+Z
+    #   going west  (dx<0) → interior is north → nz=-Z
+    # dist follows the standard "dist = -dot(normal, point_on_plane)" formula.
+    for (sx, sz), (ex, ez) in perimeter:
+        v_sf = add_v((sx, floor_y,   sz))
+        v_ef = add_v((ex, floor_y,   ez))
+        v_ec = add_v((ex, ceiling_y, ez))
+        v_sc = add_v((sx, ceiling_y, sz))
+        dx = ex - sx
+        dz = ez - sz
+        if dx == 0:
+            if dz < 0:
+                nx, nz, dist = NX_POS, 0, -sx
+            else:
+                nx, nz, dist = NX_NEG, 0,  sx
+        elif dz == 0:
+            if dx > 0:
+                nx, nz, dist = 0, NZ_POS, -sz
+            else:
+                nx, nz, dist = 0, NZ_NEG,  sz
+        else:
+            raise ValueError(
+                f"L-shape walls must be axis-aligned, got dx={dx} dz={dz}")
+        polys.append((0, v_sf, v_ef, v_ec, nx, 0, nz, dist))
+        polys.append((0, v_sf, v_ec, v_sc, nx, 0, nz, dist))
+
+    # Interior wall polys — two-sided. Each segment blocks from BOTH sides
+    # so we emit the same quad twice with opposite normals + reversed
+    # winding. The "natural" normal/dist comes from the segment direction
+    # using the same right-hand convention as outer walls; the second poly
+    # just flips everything.
+    for (sx, sz), (ex, ez) in interior_walls:
+        v_sf = add_v((sx, floor_y,   sz))
+        v_ef = add_v((ex, floor_y,   ez))
+        v_ec = add_v((ex, ceiling_y, ez))
+        v_sc = add_v((sx, ceiling_y, sz))
+        dx, dz = ex - sx, ez - sz
+        if dx == 0:
+            nx_a, nz_a, dist_a = (
+                (NX_POS, 0, -sx) if dz < 0 else (NX_NEG, 0, sx)
+            )
+        elif dz == 0:
+            nx_a, nz_a, dist_a = (
+                (0, NZ_POS, -sz) if dx > 0 else (0, NZ_NEG, sz)
+            )
+        else:
+            raise ValueError(
+                f"Interior walls must be axis-aligned, got dx={dx} dz={dz}")
+        # Side A
+        polys.append((0, v_sf, v_ef, v_ec, nx_a, 0, nz_a, dist_a))
+        polys.append((0, v_sf, v_ec, v_sc, nx_a, 0, nz_a, dist_a))
+        # Side B — flipped normal, reversed winding, opposite dist.
+        nx_b = (-nx_a) & 0xFFFF
+        nz_b = (-nz_a) & 0xFFFF
+        dist_b = -dist_a
+        polys.append((0, v_sf, v_ec, v_ef, nx_b, 0, nz_b, dist_b))
+        polys.append((0, v_sf, v_sc, v_ec, nx_b, 0, nz_b, dist_b))
+
+    body += struct.pack('<i', len(verts))
+    for v in verts:
+        body += struct.pack('<hhh', *v)
+
+    body += struct.pack('<I', len(polys))
+    for surf_type, a, b, c, nx, ny, nz, dist in polys:
+        body += struct.pack('<HHHHHHHH',
+                            surf_type, a, b, c,
+                            nx & 0xFFFF, ny & 0xFFFF, nz & 0xFFFF,
+                            dist & 0xFFFF)
+
+    # Surface types
+    body += struct.pack('<I', 1)
+    body += struct.pack('<II', 0, 0)
+
+    # Camera data (1 entry — Camera_Update crashes on NULL)
+    body += struct.pack('<I', 1)
+    body += struct.pack('<Hh', 0, 0)
+    body += struct.pack('<i', 0)
+    body += struct.pack('<i', 0)
+
+    # Water boxes
+    body += struct.pack('<i', 0)
+
+    return header + bytes(body)
+
+
+def _build_maze_geometry(bounds, interior_walls, floor_y, h):
+    """Outer rectangle + axis-aligned interior partitions, two-sided.
+
+    Args:
+        bounds: {"x_range": (min, max), "z_range": (min, max)}.
+        interior_walls: list of dicts.
+            {"start": (sx, sz), "end": (ex, ez)}                  full wall
+            {"start": ..., "end": ...,
+             "door": {"x": cx, "half_width": w, "height": h}}     wall with
+                a door-shaped visual hole around (cx, ?, sz). Only Z-axis
+                walls (sz == ez) carry doors today; the collision builder
+                gets the full wall regardless so the door panel sits in a
+                solid-collision frame and En_Door's open cutscene moves
+                Link through.
+    Returns:
+        (verts, colors, n_faces, floor_rects, outer_perimeter)
+    """
+    x_min, x_max = bounds["x_range"]
+    z_min, z_max = bounds["z_range"]
+    ceiling_y = floor_y + h
+
+    LIGHT_DIR  = (0.4, 0.8, -0.4)
+    SHADE_STRENGTH = 0.55
+    _lmag = math.sqrt(sum(c * c for c in LIGHT_DIR)) or 1.0
+    _lx, _ly, _lz = (c / _lmag for c in LIGHT_DIR)
+
+    def shade(base_color, normal):
+        nx, ny, nz = normal
+        nmag = math.sqrt(nx * nx + ny * ny + nz * nz) or 1.0
+        nx, ny, nz = nx / nmag, ny / nmag, nz / nmag
+        dot = nx * _lx + ny * _ly + nz * _lz
+        s = 1.0 - SHADE_STRENGTH * (1.0 - 0.5 * (dot + 1.0))
+        s = max(0.0, min(1.0, s))
+        return (int(base_color[0] * s), int(base_color[1] * s),
+                int(base_color[2] * s), base_color[3])
+
+    floor_color   = shade((130, 200, 120, 255), (0,  1, 0))
+    ceiling_color = shade((110, 110, 140, 255), (0, -1, 0))
+
+    outer_palette = [
+        ( 60, 200, 200, 255),  # W   — cyan
+        ( 60, 100, 220, 255),  # N   — blue
+        (200,  60, 200, 255),  # E   — magenta
+        (220, 200,  60, 255),  # S   — yellow
+    ]
+    interior_palette = [
+        (200, 120,  60, 255),  # interior 1 — orange
+        (160, 220,  60, 255),  # interior 2 — lime
+    ]
+
+    outer_perimeter = [
+        ((x_min, z_max), (x_min, z_min)),  # W
+        ((x_min, z_min), (x_max, z_min)),  # N
+        ((x_max, z_min), (x_max, z_max)),  # E
+        ((x_max, z_max), (x_min, z_max)),  # S
+    ]
+
+    verts: list[tuple[int, int, int]] = []
+    colors: list[tuple[int, int, int, int]] = []
+    n_faces = 0
+
+    def push_quad(quad, color):
+        nonlocal n_faces
+        for v in quad:
+            verts.append(v)
+            colors.append(color)
+        n_faces += 1
+
+    # Floor + ceiling — single rectangle, same winding as build_box_vertices.
+    push_quad([
+        (x_min, floor_y, z_max), (x_max, floor_y, z_max),
+        (x_max, floor_y, z_min), (x_min, floor_y, z_min),
+    ], floor_color)
+    push_quad([
+        (x_min, ceiling_y, z_min), (x_max, ceiling_y, z_min),
+        (x_max, ceiling_y, z_max), (x_min, ceiling_y, z_max),
+    ], ceiling_color)
+
+    # Outer walls — single-sided (interior on the right).
+    for idx, ((sx, sz), (ex, ez)) in enumerate(outer_perimeter):
+        dx, dz = ex - sx, ez - sz
+        if dx == 0:
+            n = (1, 0, 0) if dz < 0 else (-1, 0, 0)
+        else:
+            n = (0, 0, 1) if dx > 0 else (0, 0, -1)
+        push_quad([
+            (sx, floor_y,   sz),
+            (ex, floor_y,   ez),
+            (ex, ceiling_y, ez),
+            (sx, ceiling_y, sz),
+        ], shade(outer_palette[idx], n))
+
+    # Helper: emit a two-sided wall panel from (sx, sz) to (ex, ez), spanning
+    # y_min..y_max. Same base colour both sides; shading flips so adjacent
+    # panels at corners read as distinct planes.
+    def push_two_sided_wall(p_start, p_end, y_min, y_max, base_color):
+        sx, sz = p_start
+        ex, ez = p_end
+        dx, dz = ex - sx, ez - sz
+        if dx == 0:
+            n_a = (1, 0, 0) if dz < 0 else (-1, 0, 0)
+        else:
+            n_a = (0, 0, 1) if dx > 0 else (0, 0, -1)
+        n_b = tuple(-c for c in n_a)
+        push_quad([
+            (sx, y_min, sz), (ex, y_min, ez),
+            (ex, y_max, ez), (sx, y_max, sz),
+        ], shade(base_color, n_a))
+        push_quad([
+            (ex, y_min, ez), (sx, y_min, sz),
+            (sx, y_max, sz), (ex, y_max, ez),
+        ], shade(base_color, n_b))
+
+    # Interior walls — full-height by default; with a "door" entry, emit
+    # left/right panels around the hole + a "lintel" panel above it so the
+    # wall over the door doesn't show through to the next section.
+    for idx, wall_cfg in enumerate(interior_walls):
+        sx, sz = wall_cfg["start"]
+        ex, ez = wall_cfg["end"]
+        col = interior_palette[idx % len(interior_palette)]
+        door = wall_cfg.get("door")
+
+        if door is None:
+            push_two_sided_wall((sx, sz), (ex, ez), floor_y, ceiling_y, col)
+            continue
+
+        # Door cutout (Z-axis wall only — sz == ez).
+        assert sz == ez, "door cutouts only supported on Z-axis walls"
+        cx = door["x"]
+        hw = door["half_width"]
+        door_top = floor_y + door["height"]
+        x_lo, x_hi = sorted((sx, ex))
+        d_lo, d_hi = cx - hw, cx + hw
+
+        # Left panel (x_lo → door start), full height.
+        if x_lo < d_lo:
+            push_two_sided_wall((x_lo, sz), (d_lo, sz), floor_y, ceiling_y, col)
+        # Right panel (door end → x_hi), full height.
+        if d_hi < x_hi:
+            push_two_sided_wall((d_hi, sz), (x_hi, sz), floor_y, ceiling_y, col)
+        # Lintel panel above the door — closes the view-through gap.
+        push_two_sided_wall((d_lo, sz), (d_hi, sz), door_top, ceiling_y, col)
+
+    floor_rects = [(x_min, x_max, z_min, z_max)]
+    return verts, colors, n_faces, floor_rects, outer_perimeter
+
+
+def _build_thick_maze(bounds, wall_blocks, floor_y, h, thin_walls=None):
+    """Maze with mixed thick wall blocks + optional thin wall planes.
+
+    Thick blocks have 4 outward-facing visible faces (N, S, E, W) so their
+    endpoints never expose a "spitze" plane edge — use them for partitions
+    that end in open corridor space.
+
+    Thin walls are single planes (rendered two-sided), used for walls whose
+    endpoints reach the outer perimeter — extend them slightly past x=±max
+    and the endpoints are hidden behind the outer walls. The door panel
+    can sit FLUSH with a thin wall, which is what we want for En_Door.
+
+    Args:
+        bounds: outer box.
+        wall_blocks: list of {"rect": (x0,x1,z0,z1)[, "door": {...}]}.
+        thin_walls: list of {"start": (sx,sz), "end": (ex,ez)
+                              [, "door": {"x": cx, "half_width": w,
+                                          "height": h}]}.
+                    Only Z-axis (sz==ez) walls with X-axis door cutouts
+                    are supported.
+    Returns:
+        (verts, colors, n_faces, floor_rects, outer_perimeter,
+         block_perimeters, thin_collision_segments)
+    """
+    thin_walls = thin_walls or []
+    x_min, x_max = bounds["x_range"]
+    z_min, z_max = bounds["z_range"]
+    ceiling_y = floor_y + h
+
+    LIGHT_DIR = (0.4, 0.8, -0.4)
+    SHADE_STRENGTH = 0.55
+    _lmag = math.sqrt(sum(c * c for c in LIGHT_DIR)) or 1.0
+    _lx, _ly, _lz = (c / _lmag for c in LIGHT_DIR)
+
+    def shade(base_color, normal):
+        nx, ny, nz = normal
+        nmag = math.sqrt(nx * nx + ny * ny + nz * nz) or 1.0
+        nx, ny, nz = nx / nmag, ny / nmag, nz / nmag
+        dot = nx * _lx + ny * _ly + nz * _lz
+        s = 1.0 - SHADE_STRENGTH * (1.0 - 0.5 * (dot + 1.0))
+        s = max(0.0, min(1.0, s))
+        return (int(base_color[0] * s), int(base_color[1] * s),
+                int(base_color[2] * s), base_color[3])
+
+    floor_color   = shade((130, 200, 120, 255), (0,  1, 0))
+    ceiling_color = shade((110, 110, 140, 255), (0, -1, 0))
+
+    outer_palette = [
+        ( 60, 200, 200, 255),  # W   — cyan
+        ( 60, 100, 220, 255),  # N   — blue
+        (200,  60, 200, 255),  # E   — magenta
+        (220, 200,  60, 255),  # S   — yellow
+    ]
+    block_palette = [
+        (200, 120,  60, 255),  # orange
+        (160, 220,  60, 255),  # lime
+        (220, 100, 140, 255),  # pink
+        (120, 180, 220, 255),  # sky
+        (220, 180,  80, 255),  # gold
+    ]
+
+    outer_perimeter = [
+        ((x_min, z_max), (x_min, z_min)),  # W
+        ((x_min, z_min), (x_max, z_min)),  # N
+        ((x_max, z_min), (x_max, z_max)),  # E
+        ((x_max, z_max), (x_min, z_max)),  # S
+    ]
+
+    verts: list[tuple[int, int, int]] = []
+    colors: list[tuple[int, int, int, int]] = []
+    n_faces = 0
+
+    def push_quad(quad, color):
+        nonlocal n_faces
+        for v in quad:
+            verts.append(v)
+            colors.append(color)
+        n_faces += 1
+
+    # ── Floor / ceiling (single rect) ──────────────────────────────────
+    push_quad([
+        (x_min, floor_y, z_max), (x_max, floor_y, z_max),
+        (x_max, floor_y, z_min), (x_min, floor_y, z_min),
+    ], floor_color)
+    push_quad([
+        (x_min, ceiling_y, z_min), (x_max, ceiling_y, z_min),
+        (x_max, ceiling_y, z_max), (x_min, ceiling_y, z_max),
+    ], ceiling_color)
+
+    # ── Outer perimeter walls ──────────────────────────────────────────
+    for idx, ((sx, sz), (ex, ez)) in enumerate(outer_perimeter):
+        dx, dz = ex - sx, ez - sz
+        if dx == 0:
+            n = (1, 0, 0) if dz < 0 else (-1, 0, 0)
+        else:
+            n = (0, 0, 1) if dx > 0 else (0, 0, -1)
+        push_quad([
+            (sx, floor_y,   sz),
+            (ex, floor_y,   ez),
+            (ex, ceiling_y, ez),
+            (sx, ceiling_y, sz),
+        ], shade(outer_palette[idx], n))
+
+    # ── Thick wall blocks ──────────────────────────────────────────────
+    # Block faces walked CW from above with OUTSIDE on the right — feeds
+    # the existing wall-quad winding (start_floor/end_floor/end_ceil/
+    # start_ceil) which produces an outward-visible face.
+    block_perimeters: list[list[tuple]] = []
+
+    def emit_face_quad(p_start, p_end, y_min, y_max, color):
+        sx, sz = p_start
+        ex, ez = p_end
+        dx, dz = ex - sx, ez - sz
+        if dx == 0:
+            n = (1, 0, 0) if dz < 0 else (-1, 0, 0)
+        else:
+            n = (0, 0, 1) if dx > 0 else (0, 0, -1)
+        push_quad([
+            (sx, y_min, sz), (ex, y_min, ez),
+            (ex, y_max, ez), (sx, y_max, sz),
+        ], shade(color, n))
+
+    def emit_face_with_door(p_start, p_end, door, y_min, y_max, color):
+        """One long face with a door-shaped hole + lintel."""
+        sx, sz = p_start
+        ex, ez = p_end
+        axis = door["axis"]
+        center = door["position"]
+        half_w = door["half_width"]
+        door_top = y_min + door["height"]
+
+        if axis == "x":
+            assert sz == ez, "x-axis door cutout requires a Z-aligned face"
+            lo, hi = sorted((sx, ex))
+            d_lo, d_hi = center - half_w, center + half_w
+            # Walk direction (sx→ex) decides left/right semantics; emit
+            # using the SAME walk direction so the normal stays correct.
+            #   step 1: from start to door-near-edge
+            #   step 2: lintel above the gap
+            #   step 3: from door-far-edge to end
+            step = 1 if ex > sx else -1
+            near = d_hi if step < 0 else d_lo
+            far  = d_lo if step < 0 else d_hi
+            if (step > 0 and near > sx) or (step < 0 and near < sx):
+                emit_face_quad((sx, sz), (near, sz), y_min, y_max, color)
+            emit_face_quad((near, sz), (far, sz), door_top, y_max, color)
+            if (step > 0 and far < ex) or (step < 0 and far > ex):
+                emit_face_quad((far, sz), (ex, sz), y_min, y_max, color)
+        else:
+            assert sx == ex, "z-axis door cutout requires an X-aligned face"
+            d_lo, d_hi = center - half_w, center + half_w
+            step = 1 if ez > sz else -1
+            near = d_hi if step < 0 else d_lo
+            far  = d_lo if step < 0 else d_hi
+            if (step > 0 and near > sz) or (step < 0 and near < sz):
+                emit_face_quad((sx, sz), (sx, near), y_min, y_max, color)
+            emit_face_quad((sx, near), (sx, far), door_top, y_max, color)
+            if (step > 0 and far < ez) or (step < 0 and far > ez):
+                emit_face_quad((sx, far), (ex, ez), y_min, y_max, color)
+
+    for idx, cfg in enumerate(wall_blocks):
+        x0, x1, z0, z1 = cfg["rect"]
+        col = block_palette[idx % len(block_palette)]
+        door = cfg.get("door")
+
+        # Block perimeter walked CW from above (outside on the right). Each
+        # segment becomes one outward-facing face. Long X-axis faces (north
+        # and south of the block, z=z0 and z=z1) carry the door cutout when
+        # door.axis == "x"; long Z-axis faces (x=x0, x=x1) carry it when
+        # door.axis == "z".
+        perim_segments = [
+            ((x1, z0), (x0, z0), "x", z0),  # north face (z=z0)
+            ((x0, z0), (x0, z1), "z", x0),  # west  face (x=x0)
+            ((x0, z1), (x1, z1), "x", z1),  # south face (z=z1)
+            ((x1, z1), (x1, z0), "z", x1),  # east  face (x=x1)
+        ]
+
+        for start, end, face_axis, _ in perim_segments:
+            if door and door["axis"] == face_axis:
+                emit_face_with_door(start, end, door, floor_y, ceiling_y, col)
+            else:
+                emit_face_quad(start, end, floor_y, ceiling_y, col)
+
+        # Block perimeter (start, end) tuples for collision.
+        block_perimeters.append([(s, e) for s, e, _, _ in perim_segments])
+
+    # ── Thin walls (single-plane, two-sided render, flush door support) ─
+    # Each thin wall emits its visual panels TWICE (once with each normal)
+    # so it reads from both sides. For collision, we emit each panel as
+    # a single two-sided segment via the existing interior_walls path —
+    # so the door panel sits flush with the wall plane (no thickness gap).
+    thin_collision_segments = []
+    for idx, wall_cfg in enumerate(thin_walls):
+        sx, sz = wall_cfg["start"]
+        ex, ez = wall_cfg["end"]
+        col = block_palette[(len(wall_blocks) + idx) % len(block_palette)]
+        door = wall_cfg.get("door")
+        assert sz == ez, "thin walls must be Z-axis (sz == ez)"
+
+        # Inward normals — for two-sided we render both and shade them
+        # differently so the wall reads from either side.
+        dx = ex - sx
+        n_a = (0, 0, 1) if dx > 0 else (0, 0, -1)
+        n_b = tuple(-c for c in n_a)
+
+        def emit_side(p_start, p_end, y_min, y_max, normal):
+            sx_, sz_ = p_start
+            ex_, ez_ = p_end
+            push_quad([
+                (sx_, y_min, sz_), (ex_, y_min, ez_),
+                (ex_, y_max, ez_), (sx_, y_max, sz_),
+            ], shade(col, normal))
+
+        if door is None:
+            emit_side((sx, sz), (ex, ez), floor_y, ceiling_y, n_a)
+            emit_side((ex, ez), (sx, sz), floor_y, ceiling_y, n_b)
+        else:
+            # Door cutout: split into left/lintel/right, emit each side.
+            cx = door["x"]
+            hw = door["half_width"]
+            door_top = floor_y + door["height"]
+            x_lo, x_hi = sorted((sx, ex))
+            d_lo, d_hi = cx - hw, cx + hw
+            panels = [
+                ((x_lo, sz),  (d_lo, sz),  floor_y, ceiling_y),  # left, full height
+                ((d_lo, sz),  (d_hi, sz),  door_top, ceiling_y), # lintel
+                ((d_hi, sz),  (x_hi, sz),  floor_y, ceiling_y),  # right, full height
+            ]
+            for p_start, p_end, y0, y1 in panels:
+                if p_start == p_end:
+                    continue
+                emit_side(p_start, p_end, y0, y1, n_a)
+                # Other side: reverse start/end for opposite winding.
+                emit_side(p_end, p_start, y0, y1, n_b)
+
+        # Collision: thin wall blocks from both sides — feed the existing
+        # interior_walls path which emits two-sided polys per segment.
+        thin_collision_segments.append(((sx, sz), (ex, ez)))
+
+    floor_rects = [(x_min, x_max, z_min, z_max)]
+    return (verts, colors, n_faces, floor_rects, outer_perimeter,
+            block_perimeters, thin_collision_segments)
+
+
+def build_mesh_lab_o2r(output_path: Path | str, layout: str = "empty") -> Path:
+    """Build a Mesh Lab .o2r — a single-room sandbox for custom geometry.
+
+    Lives in its own `scenes/squadala_mesh_lab/` namespace so swapping
+    experiments only evicts the lab's resources, never the full dungeon's.
+    No actors (only Link's spawn), no transition actors, no decorations —
+    just the room geometry. Pick the shape with `layout`.
+
+    Layouts:
+        - "empty":   single rectangular box, 2000 × 800 × 3000.
+        - "l_shape": L-shape with a right-angle turn at the north end. South
+                      arm is 600×600×1000, east arm sticks out 600×600×400.
+        - "maze":    Z-zigzag maze, 800×600×1000, with a small chest
+                      (small-key reward) and a big chest behind a locked
+                      door. Switch-flag tracks the unlock so the door stays
+                      open after first use.
+    """
+    import zipfile
+
+    output = Path(output_path)
+    output.parent.mkdir(parents=True, exist_ok=True)
+
+    TARGET = "scenes/squadala_mesh_lab"
+    SCENE_PATH = f"{TARGET}/dungeon_scene"
+    COLLISION_PATH = f"{TARGET}/collision"
+    ROOM_PATH = f"{TARGET}/room_0"
+    ROOM_VTX_PATH = f"{TARGET}/room0_Vtx"
+    ROOM_DL_PATH = f"{TARGET}/room0_DL"
+
+    actors: list[dict] = []
+    transition_actors: list[dict] = []
+    spawn_rot_y = 0x8000  # default: facing -Z (north)
+
+    if layout == "empty":
+        HALF_W, FULL_H, HALF_D = 1000, 800, 1500
+        verts, cols, n_faces = build_box_vertices(w=HALF_W, h=FULL_H, d=HALF_D)
+        collision = build_collision(
+            min_x=-HALF_W, max_x=HALF_W, floor_y=-100, h=FULL_H,
+            min_z=-HALF_D, max_z=HALF_D,
+        )
+        spawn = (0, 0, HALF_D - 200)
+        shape_desc = f"empty {2 * HALF_W}×{FULL_H}×{2 * HALF_D}"
+    elif layout == "l_shape":
+        FLOOR_Y, ROOM_H = -100, 600
+        # Arm A south, Arm B east at the NORTH end so the corner is in
+        # front of the player on entry (spawn faces -Z = north).
+        arm_a = {"x_range": (-300,  300), "z_range": (-500,  500)}  # south arm
+        arm_b = {"x_range": ( 300,  900), "z_range": (-500, -100)}  # east arm (north)
+        verts, cols, n_faces, floor_rects, perimeter = _build_l_shape_geometry(
+            arm_a, arm_b, floor_y=FLOOR_Y, h=ROOM_H,
+        )
+        collision = _build_l_shape_collision(floor_rects, perimeter, FLOOR_Y, ROOM_H)
+        spawn = (0, 0, 400)  # south arm, near the south wall, facing -Z (north)
+        shape_desc = "L-shape (south arm 600×600×1000 + east arm 600×600×400 at north)"
+    elif layout == "maze":
+        # v1 maze — thin partition walls, simple Z-zigzag with locked door.
+        # User confirmed this layout works; keeping it as the baseline.
+        FLOOR_Y, ROOM_H = -100, 600
+        bounds = {"x_range": (-400, 400), "z_range": (-500, 500)}
+        DOOR_X, DOOR_Z = 200, -100
+        DOOR_HALF_W, DOOR_HEIGHT = 30, 100
+        interior_walls = [
+            {"start": (-100,  100), "end": ( 400,  100)},
+            {"start": (-400, DOOR_Z), "end": ( 400, DOOR_Z),
+             "door": {"x": DOOR_X, "half_width": DOOR_HALF_W,
+                       "height": DOOR_HEIGHT}},
+        ]
+        verts, cols, n_faces, floor_rects, outer_perim = _build_maze_geometry(
+            bounds, interior_walls, floor_y=FLOOR_Y, h=ROOM_H,
+        )
+        collision_walls = [(w["start"], w["end"]) for w in interior_walls]
+        collision = _build_l_shape_collision(
+            floor_rects, outer_perim, FLOOR_Y, ROOM_H,
+            interior_walls=collision_walls,
+        )
+        spawn = (0, 0, 400)
+        LOCKED_DOOR_PARAMS = (1 << 7) | 0x3F
+        transition_actors = [
+            {"actor_name": "en_door",
+             "front_room": 0, "back_room": 0,
+             "x": DOOR_X, "y": FLOOR_Y, "z": DOOR_Z,
+             "rot_y": 0x0000,
+             "params": LOCKED_DOOR_PARAMS},
+        ]
+        actors = [
+            {"name": "chest", "x":    0, "y": FLOOR_Y, "z":    0,
+             "rot_y": 0x0000,
+             "params": chest_params(chest_type=ENBOX_TYPE_SMALL,
+                                     item_id=GI_KEY_SMALL,
+                                     treasure_flag=10)},
+            {"name": "chest", "x":    0, "y": FLOOR_Y, "z": -300,
+             "rot_y": 0x0000,
+             "params": chest_params(chest_type=ENBOX_TYPE_BIG_DEFAULT,
+                                     item_id=GI_HEART_PIECE,
+                                     treasure_flag=11)},
+        ]
+        shape_desc = ("maze v1 — 800×600×1000, thin partitions, small chest "
+                      "(key) → locked door → big chest")
+    elif layout == "maze_complex":
+        # v2 maze — thick-walled blocks (no spitze plane edges), more
+        # branching corridors. Pulled in 1 unit from the outer walls so
+        # the block faces don't coincide with the maze perimeter (which
+        # would generate stacked collision polys at the same plane).
+        FLOOR_Y, ROOM_H = -100, 600
+        bounds = {"x_range": (-500, 500), "z_range": (-500, 500)}
+        T = 30          # thickness for partitions ending in open corridor
+        DOOR_X = 250
+        DOOR_HALF_W = 30
+        DOOR_HEIGHT = 100
+        DOOR_Z = -250
+
+        # Partitions that END in open corridor space are THICK blocks so
+        # their endpoints don't expose a thin-plane edge.
+        wall_blocks = [
+            # W1 — barrier at z≈335, gap on east (x > +200)
+            {"rect": (-499, 200, 335, 335 + T)},
+            # W2 — barrier at z≈155, gap on west (x < -200)
+            {"rect": (-200, 499, 155, 155 + T)},
+            # W3 — barrier at z≈-65, gap on east (x > +200)
+            {"rect": (-499, 200, -65, -65 + T)},
+            # Stub A — dead-end pocket in the south corridor
+            {"rect": (-100, -100 + T, 365 + T, 499)},
+            # Stub B — vertical wall forcing a detour in middle-mid section
+            {"rect": (100, 100 + T, -240 + 1, -100)},
+        ]
+        # W4 is THIN single plane so En_Door's panel sits flush (no
+        # thickness gap). Endpoints extend ±10 past the outer perimeter
+        # so the thin-plane edges hide behind the outer west/east walls.
+        thin_walls = [
+            {"start": (-510, DOOR_Z), "end": (510, DOOR_Z),
+             "door": {"x": DOOR_X, "half_width": DOOR_HALF_W,
+                       "height": DOOR_HEIGHT}},
+        ]
+
+        (verts, cols, n_faces, floor_rects, outer_perim, block_perims,
+         thin_segs) = _build_thick_maze(
+            bounds, wall_blocks, FLOOR_Y, ROOM_H, thin_walls=thin_walls,
+        )
+
+        # Thick block perimeters use the same right-hand convention as the
+        # outer perimeter (single-sided poly, normal toward maze interior)
+        # → concatenate with outer_perim. Thin walls are two-sided → feed
+        # the interior_walls path.
+        combined_outer = outer_perim + [
+            seg for bp in block_perims for seg in bp
+        ]
+        collision = _build_l_shape_collision(
+            floor_rects, combined_outer, FLOOR_Y, ROOM_H,
+            interior_walls=thin_segs,
+        )
+        spawn = (0, 0, 450)
+        LOCKED_DOOR_PARAMS = (1 << 7) | 0x3E   # different switch flag from v1
+        transition_actors = [
+            {"actor_name": "en_door",
+             "front_room": 0, "back_room": 0,
+             "x": DOOR_X, "y": FLOOR_Y, "z": DOOR_Z,
+             "rot_y": 0x0000,
+             "params": LOCKED_DOOR_PARAMS},
+        ]
+        actors = [
+            {"name": "chest", "x": -350, "y": FLOOR_Y, "z":   60,
+             "rot_y": 0x0000,
+             "params": chest_params(chest_type=ENBOX_TYPE_SMALL,
+                                     item_id=GI_KEY_SMALL,
+                                     treasure_flag=12)},
+            {"name": "chest", "x":    0, "y": FLOOR_Y, "z": -400,
+             "rot_y": 0x0000,
+             "params": chest_params(chest_type=ENBOX_TYPE_BIG_DEFAULT,
+                                     item_id=GI_HEART_PIECE,
+                                     treasure_flag=13)},
+        ]
+        shape_desc = ("maze v2 complex — 1000×600×1000 thick-walled, 4 "
+                      "barriers + 2 dead-end stubs, small chest (key) → "
+                      "locked door → big chest")
+    else:
+        raise ValueError(f"Unknown mesh-lab layout: {layout!r}")
+
+    # Union of object IDs required by every actor + transition actor — keeps
+    # En_Door and chests rendering even though the lab is a single-room
+    # scene (so func_80031A28 doesn't sweep them at load).
+    shared_objects: set[int] = set()
+    for ta in transition_actors:
+        if ta["actor_name"] in ACTOR_LIBRARY:
+            shared_objects.update(ACTOR_LIBRARY[ta["actor_name"]][2])
+    for a in actors:
+        if a["name"] in ACTOR_LIBRARY:
+            shared_objects.update(ACTOR_LIBRARY[a["name"]][2])
+
+    faces = build_box_faces(n_faces)
+    vtx_res = build_vtx_resource(verts, cols)
+    dl_res = build_display_list(ROOM_VTX_PATH, len(verts), faces)
+    room_res = build_room_header(
+        ROOM_DL_PATH, actors=actors,
+        extra_object_ids=sorted(shared_objects),
+    )
+
+    scene_header = build_scene_header(
+        ROOM_PATH, COLLISION_PATH,
+        room_size=len(room_res),
+        transition_actors=transition_actors,
+        spawn_pos=spawn,
+        spawn_rot_y=spawn_rot_y,
+    )
+
+    with zipfile.ZipFile(output, 'w', zipfile.ZIP_DEFLATED) as oz:
+        oz.writestr(ROOM_VTX_PATH, vtx_res)
+        oz.writestr(ROOM_DL_PATH, dl_res)
+        oz.writestr(ROOM_PATH, room_res)
+        oz.writestr(COLLISION_PATH, collision)
+        oz.writestr(SCENE_PATH, scene_header)
+
+    size = output.stat().st_size
+    print(f"Mesh Lab [{layout}]: {shape_desc} → {output} ({size}B)")
+    return output
+
+
+def build_custom_dungeon_o2r(output_path: Path | str) -> Path:
+    """Build a "simple custom dungeon" .o2r — single empty box in its own
+    `scenes/squadala_custom/` namespace, used as the default landing scene
+    for the Door_Warp1 entry-portal flow. Independent of both the 3-room
+    debug dungeon (`scenes/squadala/`) and the mesh-lab experiments
+    (`scenes/squadala_mesh_lab/`) so loading any of them never evicts the
+    others. No actors, no decorations, no auto-exit-portal — just a clean
+    room you can walk around in to verify the warp-in landing works.
+    """
+    import zipfile
+
+    output = Path(output_path)
+    output.parent.mkdir(parents=True, exist_ok=True)
+
+    TARGET = "scenes/squadala_custom"
+    SCENE_PATH = f"{TARGET}/dungeon_scene"
+    COLLISION_PATH = f"{TARGET}/collision"
+    ROOM_PATH = f"{TARGET}/room_0"
+    ROOM_VTX_PATH = f"{TARGET}/room0_Vtx"
+    ROOM_DL_PATH = f"{TARGET}/room0_DL"
+
+    # Match the empty mesh-lab dimensions — a reasonable "dungeon antechamber"
+    # for now. Easy to swap with LLM-compiled content later.
+    HALF_W, FULL_H, HALF_D = 1000, 800, 1500
+    verts, cols, n_faces = build_box_vertices(w=HALF_W, h=FULL_H, d=HALF_D)
+    collision = build_collision(
+        min_x=-HALF_W, max_x=HALF_W, floor_y=-100, h=FULL_H,
+        min_z=-HALF_D, max_z=HALF_D,
+    )
+    faces = build_box_faces(n_faces)
+    vtx_res = build_vtx_resource(verts, cols)
+    dl_res = build_display_list(ROOM_VTX_PATH, len(verts), faces)
+    room_res = build_room_header(ROOM_DL_PATH, actors=[])
+
+    scene_header = build_scene_header(
+        ROOM_PATH, COLLISION_PATH,
+        room_size=len(room_res),
+        spawn_pos=(0, 0, HALF_D - 200),
+        spawn_rot_y=0x8000,
+    )
+
+    with zipfile.ZipFile(output, 'w', zipfile.ZIP_DEFLATED) as oz:
+        oz.writestr(ROOM_VTX_PATH, vtx_res)
+        oz.writestr(ROOM_DL_PATH, dl_res)
+        oz.writestr(ROOM_PATH, room_res)
+        oz.writestr(COLLISION_PATH, collision)
+        oz.writestr(SCENE_PATH, scene_header)
+
+    size = output.stat().st_size
+    print(f"Custom Dungeon: empty {2 * HALF_W}×{FULL_H}×{2 * HALF_D} under "
+          f"{TARGET}/ → {output} ({size}B)")
+    return output
+
+
 def main():
     """Standalone CLI — builds the M7 step-1 test layout: 2 rooms side-by-side
     with the shared east/west wall removed (open passage). No transition actor
@@ -1421,9 +2383,25 @@ def main():
     Room 1 through the gap and walk into it on the vanilla collision floor.
 
     Pass `--single` to build the v0.6 single-room baseline instead.
+    Pass `--mesh-lab` to build the empty Mesh Lab sandbox .o2r alongside.
     """
     import sys
     output = Path.home() / "workspace/SoH/soh-source/build-cmake/soh/debug_rooms/zzz_squadala_dungeon.o2r"
+
+    # `--mesh-lab` builds every lab layout into its own .o2r so the panel's
+    # experiment dropdown can switch between them without rebuilding. The
+    # layout name is embedded in the output filename and matched against
+    # LiveGenPanel's experiment table.
+    if "--mesh-lab" in sys.argv:
+        for layout in ("empty", "l_shape", "maze", "maze_complex"):
+            lab_output = output.with_name(f"zzz_mesh_lab_{layout}.o2r")
+            build_mesh_lab_o2r(lab_output, layout=layout)
+        return
+
+    if "--custom-dungeon" in sys.argv:
+        cd_output = output.with_name("zzz_squadala_custom_dungeon.o2r")
+        build_custom_dungeon_o2r(cd_output)
+        return
 
     if "--single" in sys.argv:
         build_dungeon_o2r(output, actors=None)

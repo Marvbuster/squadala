@@ -10,6 +10,7 @@
 
 | Version | Sidecar | SoH-Fork | Status |
 |---------|---------|----------|--------|
+| v0.8 | Build 1 | Build 1 | Abgeschlossen — Mesh Lab Sandbox + Door_Warp1 Boss-Clear-Portal in den Custom Dungeon |
 | v0.7 | Build 1 | Build 1 | Abgeschlossen — M7 Multi-Room (3 Räume, En_Holl + En_Door, room-aware Deko, Squadala-Namespace) |
 | v0.6 | Build 1 | Build 1 | Abgeschlossen — M6 Lebender Raum (Spec-Bridge) + Items-Showcase im längeren Debug-Raum |
 | v0.5 | Build 1 | Build 1 | Abgeschlossen — Vollständiger Box-Raum + Custom Chest Content + GLB-Importer |
