@@ -30,7 +30,7 @@ LLM-Logik in Python iteriert sich 50× schneller als in einem rekompilierten C++
 │                        │  :7777  │                          │
 │  ┌──────────────────┐  │         │  ┌────────────────────┐  │
 │  │ ImGui Prompt UI  │  │         │  │ LLM Orchestrator   │  │
-│  └──────────────────┘  │         │  │ (Claude Agent SDK) │  │
+│  └──────────────────┘  │         │  │ (`anthropic` Py-SDK)│  │
 │  ┌──────────────────┐  │         │  └────────────────────┘  │
 │  │ Scene Injector   │  │         │  ┌────────────────────┐  │
 │  │ (runtime loader) │  │         │  │ Template Library   │  │

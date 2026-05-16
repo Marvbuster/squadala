@@ -11,6 +11,13 @@ categories:
   - architecture
   - features
   - milestones
+tech_stack:
+  - cpp
+  - docker
+  - ios
+  - python
+  - swift
+
 ---
 
 # Wiki Configuration

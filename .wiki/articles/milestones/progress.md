@@ -22,6 +22,8 @@ related:
 - DungeonSpec Pydantic-Schema mit Graph-Validierung
 - Key-Konsistenzprüfung, Boss-Raum-Validierung
 
+> **Hinweis (Stand Mai 2026):** Der hier dokumentierte M1-Tool-Use-Ansatz (`ask_player`, `submit_dungeon`) wurde mittlerweile durch **strukturierten JSON-Output** abgelöst — `livegen/agent.py` arbeitet seit dem Gemma-4-Upgrade ohne Tools (`tools=[]`), der Agent liefert das Dungeon-JSON direkt im Response-Text. Details siehe [features/llm-agent](../features/llm-agent.md). Der Milestone-Eintrag bleibt historisch korrekt für den damaligen Stand.
+
 ## M2 — Template-Extraktion ✅
 
 **Status:** Fertig | **Tests:** 9/9 grün | **Commit:** 799836e
