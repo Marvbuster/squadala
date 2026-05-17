@@ -45,12 +45,20 @@ LLM-Logik in Python iteriert sich 50× schneller als in einem rekompilierten C++
 
 ## Kommunikation
 
-| Richtung | Methode | Zweck |
-|----------|---------|-------|
-| SoH → Sidecar | POST /sessions | Neue Dungeon-Generation starten |
-| SoH → Sidecar | POST /sessions/{id}/message | Spieler-Antwort weiterleiten |
-| Sidecar → SoH | Response mit DungeonSpec | Fertiger Dungeon als JSON |
-| Sidecar → Disk | .o2r in mods/ schreiben | Scene-Daten für SoH |
+FastAPI-Endpoints im Sidecar (`sidecar/src/livegen/api.py`):
+
+| Methode | Pfad | Zweck |
+|---------|------|-------|
+| POST | `/sessions` | Neue Dungeon-Generation mit initialem Prompt starten |
+| POST | `/sessions/{session_id}/message` | Spieler-Antwort an laufende Session weiterleiten |
+| GET  | `/sessions/{session_id}` | Aktuellen Session-State abfragen |
+| POST | `/compile` | DungeonSpec → `.o2r` kompilieren, Output in `mods/` |
+| GET  | `/dungeons` | Persistierte Dungeons aus `DungeonStore` listen |
+| POST | `/dungeons/{dungeon_id}/activate` | Gespeicherten Dungeon hot-swappen |
+| DELETE | `/dungeons/{dungeon_id}` | Gespeicherten Dungeon entfernen |
+| GET  | `/health` | Health-Check, gibt Version + Backend zurück |
+
+Side-Effekte: kompilierte Scenes werden als `.o2r` nach `mods/` geschrieben — SceneInjector im SoH-Fork picked sie zur Laufzeit auf.
 
 ## Ablauf (Ende-zu-Ende)
 
