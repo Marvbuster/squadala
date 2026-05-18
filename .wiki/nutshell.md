@@ -28,7 +28,7 @@ integrations:
   - openai
 quick_links:
   repo: "git@github.com:Marvbuster/squadala.git"
-last_active: 2026-05-14
+last_active: 2026-05-17
 ---
 # In a nutshell
 
