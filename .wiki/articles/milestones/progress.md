@@ -1,7 +1,7 @@
 ---
 title: "Milestone Progress"
 created: 2026-04-29
-updated: 2026-04-29
+updated: 2026-06-11
 category: milestones
 tags: [progress, milestones, status]
 status: current
@@ -22,7 +22,7 @@ related:
 - DungeonSpec Pydantic-Schema mit Graph-Validierung
 - Key-Konsistenzprüfung, Boss-Raum-Validierung
 
-> **Hinweis (Stand Mai 2026):** Der hier dokumentierte M1-Tool-Use-Ansatz (`ask_player`, `submit_dungeon`) wurde mittlerweile durch **strukturierten JSON-Output** abgelöst — `livegen/agent.py` arbeitet seit dem Gemma-4-Upgrade ohne Tools (`tools=[]`), der Agent liefert das Dungeon-JSON direkt im Response-Text. Details siehe [features/llm-agent](../features/llm-agent.md). Der Milestone-Eintrag bleibt historisch korrekt für den damaligen Stand.
+> **Hinweis (Stand Mai 2026):** Der hier dokumentierte M1-Tool-Use-Ansatz (`ask_player`, `submit_dungeon`) wurde mittlerweile durch **strukturierten JSON-Output** abgelöst — `livegen/agent.py` arbeitet inzwischen ohne Tools (`tools=[]`), der Agent liefert das Dungeon-JSON direkt im Response-Text (Default-Backend: Anthropic `claude-sonnet-4-5-20250514`, lokal via OpenAI-kompatiblem Backend). Details siehe [features/llm-agent](../features/llm-agent.md). Der Milestone-Eintrag bleibt historisch korrekt für den damaligen Stand.
 
 ## M2 — Template-Extraktion ✅
 

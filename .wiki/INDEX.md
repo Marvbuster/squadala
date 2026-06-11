@@ -1,7 +1,7 @@
 # Wiki Index
 
 > Auto-maintained. Regenerate with `/wiki-index`.
-> **Last updated:** 2026-05-03 | **Articles:** 10 | **Archived:** 0
+> **Last updated:** 2026-06-11 | **Articles:** 11 | **Archived:** 0
 
 ---
 
@@ -10,7 +10,7 @@
 - [Hybrid-Architektur](articles/architecture/hybrid-architecture.md) — SoH + Python-Sidecar über HTTP
 - [Dungeon-Schema](articles/architecture/dungeon-schema.md) — Pydantic-Modelle, Validierung, JSON-Format
 - [SoH Scene-Format](articles/architecture/soh-scene-format.md) — .o2r Binärformat, Scene Commands, Actors, Collision
-- [Dungeon-Katalog](articles/architecture/dungeon-catalog.md) — 218 Räume, 10 Dungeons, Connectivity-Graphen
+- [Dungeon-Katalog](articles/architecture/dungeon-catalog.md) — 219 Räume (202 Haupt + 17 Boss), 10 Dungeons, Connectivity-Graphen
 - [O2R Reverse Engineering](articles/architecture/o2r-reverse-engineering.md) — Checkliste, Binärformate, Round-Trip Plan
 - [Deku Tree Binary Analysis](articles/architecture/deku-tree-binary-analysis.md) — **WICHTIG** Byte-für-Byte Referenz für Scene-Writer
 - [OTR DL Resolution](articles/architecture/otr-dl-resolution.md) — **KRITISCH** GbiWrap.cpp resolved __OTR__ DL-Pfade
@@ -19,7 +19,7 @@
 
 ## Features
 
-- [LLM-Agent](articles/features/llm-agent.md) — Structured JSON Output, Gemma 4 via MLX
+- [LLM-Agent](articles/features/llm-agent.md) — Structured JSON Output, Default Anthropic (`claude-sonnet-4-5-20250514`), lokal via OpenAI-kompatiblem Backend
 
 ## Milestones
 
@@ -29,5 +29,5 @@
 
 ## Stats
 
-- **Total:** 10 articles (0 archived)
-- **By category:** Architecture(8), Features(1), Milestones(1)
+- **Total:** 11 articles (0 archived)
+- **By category:** Architecture(9), Features(1), Milestones(1)
