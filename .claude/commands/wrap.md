@@ -34,3 +34,17 @@ Release Wrap: Versionierung, Release Notes und Commit für OoT Live Dungeon.
 7. **Git Commit + Push:**
    - `git add -A && git commit -m "docs: v{VERSION} — {Zusammenfassung}"`
    - Nur committen und pushen wenn es Änderungen gibt
+
+## status.txt (Pflicht bei jedem Wrap)
+
+Bei JEDEM `/wrap` MUSS eine `status.txt` im Repo-Root geschrieben/überschrieben werden -
+**gitignored** (falls nicht vorhanden, `status.txt` in `.gitignore` aufnehmen; **nie
+committen**). Sie enthält immer den letzten Stand, damit die nächste Session/der nächste
+Mensch ohne Git-Archäologie weitermachen kann:
+
+- `Stand:` Datum + Version
+- `Zuletzt gemacht:` was dieser Wrap abgeschlossen hat
+- `Offen / Nächste Schritte:` was noch aussteht (TODOs, bewusst Ausgelassenes, WIP)
+
+Bei jedem Wrap überschreiben (nicht anhängen), sodass die Datei stets den aktuellen
+Zustand zeigt.
