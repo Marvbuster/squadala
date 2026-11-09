@@ -45,3 +45,6 @@ SoH-App/
 
 # Retro tool
 tooling/retro/
+
+# lokal, nicht versionieren
+status.txt

@@ -521,6 +521,9 @@ GI_LIVEGEN_HYDRANT = 0x7D
 
 # Object IDs needed by transition actors with their own visual mesh.
 OBJECT_GAMEPLAY_FIELD_KEEP = 0x0002
+OBJECT_MORI_OBJECTS        = 0x0072   # Forest Temple objects — holds the
+                                       # vanilla ladder DL (gMoriHashigoLadderDL)
+                                       # we render in the two-level lab.
 
 
 def chest_params(chest_type: int = ENBOX_TYPE_BIG_DEFAULT,
@@ -2106,6 +2109,495 @@ def _build_thick_maze(bounds, wall_blocks, floor_y, h, thin_walls=None):
             block_perimeters, thin_collision_segments)
 
 
+def _build_two_level_v2_geometry(half_w, half_d, platform_x, platform_z,
+                                 main_y, platform_y, ceiling_y):
+    """Single main floor + raised platform deck in the NW corner.
+
+    Platform is reachable from below by climbing the ladder on its south
+    face. A chest sits on top. Visual underside on the platform so
+    standing under it doesn't see through to nothing.
+    """
+    PX_MIN, PX_MAX = platform_x
+    PZ_MIN, PZ_MAX = platform_z
+
+    LIGHT_DIR = (0.4, 0.8, -0.4)
+    SHADE_STRENGTH = 0.55
+    _lmag = math.sqrt(sum(c * c for c in LIGHT_DIR)) or 1.0
+    _lx, _ly, _lz = (c / _lmag for c in LIGHT_DIR)
+
+    def shade(base, normal):
+        nx, ny, nz = normal
+        nmag = math.sqrt(nx * nx + ny * ny + nz * nz) or 1.0
+        nx, ny, nz = nx / nmag, ny / nmag, nz / nmag
+        dot = nx * _lx + ny * _ly + nz * _lz
+        s = 1.0 - SHADE_STRENGTH * (1.0 - 0.5 * (dot + 1.0))
+        s = max(0.0, min(1.0, s))
+        return (int(base[0] * s), int(base[1] * s), int(base[2] * s), base[3])
+
+    main_floor_col   = shade((130, 200, 120, 255), (0,  1, 0))
+    platform_col     = shade((180, 200, 130, 255), (0,  1, 0))
+    underside_col    = shade(( 90,  90, 100, 255), (0, -1, 0))
+    ceiling_col      = shade((110, 110, 140, 255), (0, -1, 0))
+    platform_wall_col= shade((180, 160, 110, 255), (0,  0, 1))  # warm sand
+    outer_palette = [
+        ( 60, 200, 200, 255),  # W
+        ( 60, 100, 220, 255),  # N
+        (200,  60, 200, 255),  # E
+        (220, 200,  60, 255),  # S
+    ]
+
+    verts: list[tuple[int, int, int]] = []
+    colors: list[tuple[int, int, int, int]] = []
+    n_faces = 0
+
+    def push_quad(quad, color):
+        nonlocal n_faces
+        for v in quad:
+            verts.append(v)
+            colors.append(color)
+        n_faces += 1
+
+    # Main floor — single large +Y quad covering the whole room.
+    push_quad([
+        (-half_w, main_y,  half_d), ( half_w, main_y,  half_d),
+        ( half_w, main_y, -half_d), (-half_w, main_y, -half_d),
+    ], main_floor_col)
+
+    # Platform top — small +Y quad in NW corner at raised y.
+    push_quad([
+        (PX_MIN, platform_y, PZ_MAX), (PX_MAX, platform_y, PZ_MAX),
+        (PX_MAX, platform_y, PZ_MIN), (PX_MIN, platform_y, PZ_MIN),
+    ], platform_col)
+    # Platform underside — same plane, opposite winding so -Y normal is
+    # visible to players standing UNDER the deck on the main floor.
+    push_quad([
+        (PX_MIN, platform_y, PZ_MIN), (PX_MAX, platform_y, PZ_MIN),
+        (PX_MAX, platform_y, PZ_MAX), (PX_MIN, platform_y, PZ_MAX),
+    ], underside_col)
+
+    # Ceiling — full footprint, -Y normal.
+    push_quad([
+        (-half_w, ceiling_y, -half_d), ( half_w, ceiling_y, -half_d),
+        ( half_w, ceiling_y,  half_d), (-half_w, ceiling_y,  half_d),
+    ], ceiling_col)
+
+    # Outer walls — full height main_y..ceiling_y, CCW from above (interior
+    # on the right), same convention as box-room west wall.
+    outer_perimeter = [
+        ((-half_w,  half_d), (-half_w, -half_d)),  # W
+        ((-half_w, -half_d), ( half_w, -half_d)),  # N
+        (( half_w, -half_d), ( half_w,  half_d)),  # E
+        (( half_w,  half_d), (-half_w,  half_d)),  # S
+    ]
+    for idx, ((sx, sz), (ex, ez)) in enumerate(outer_perimeter):
+        dx, dz = ex - sx, ez - sz
+        if dx == 0:
+            n = (1, 0, 0) if dz < 0 else (-1, 0, 0)
+        else:
+            n = (0, 0, 1) if dx > 0 else (0, 0, -1)
+        push_quad([
+            (sx, main_y,     sz),
+            (ex, main_y,     ez),
+            (ex, ceiling_y,  ez),
+            (sx, ceiling_y,  sz),
+        ], shade(outer_palette[idx], n))
+
+    # Platform south face — TWO-SIDED. Players see it from the main floor
+    # (+Z normal) AND, when they're on top of the platform looking south
+    # over the edge, they see the back of the same wall (-Z normal). Need
+    # both windings emitted so neither side culls.
+    # Main-floor side (+Z normal): CCW from south viewer = BL,BR,TR,TL.
+    push_quad([
+        (PX_MIN, main_y,     PZ_MAX),
+        (PX_MAX, main_y,     PZ_MAX),
+        (PX_MAX, platform_y, PZ_MAX),
+        (PX_MIN, platform_y, PZ_MAX),
+    ], platform_wall_col)
+    # Platform-side (-Z normal): reverse winding so the back face renders.
+    push_quad([
+        (PX_MAX, main_y,     PZ_MAX),
+        (PX_MIN, main_y,     PZ_MAX),
+        (PX_MIN, platform_y, PZ_MAX),
+        (PX_MAX, platform_y, PZ_MAX),
+    ], shade(platform_wall_col, (0, 0, -1)))
+
+    # Platform east face — TWO-SIDED, same reasoning.
+    # Main-floor side (+X normal):
+    push_quad([
+        (PX_MAX, main_y,     PZ_MIN),
+        (PX_MAX, main_y,     PZ_MAX),
+        (PX_MAX, platform_y, PZ_MAX),
+        (PX_MAX, platform_y, PZ_MIN),
+    ], shade(platform_wall_col, (1, 0, 0)))
+    # Platform-side (-X normal):
+    push_quad([
+        (PX_MAX, main_y,     PZ_MAX),
+        (PX_MAX, main_y,     PZ_MIN),
+        (PX_MAX, platform_y, PZ_MIN),
+        (PX_MAX, platform_y, PZ_MAX),
+    ], shade(platform_wall_col, (-1, 0, 0)))
+
+    return verts, colors, n_faces
+
+
+def _build_two_level_v2_collision(half_w, half_d, platform_x, platform_z,
+                                  main_y, platform_y, ceiling_y):
+    """Collision for the platform layout. Includes a climbable surface
+    type at index 1, applied to the platform's south face so Link climbs
+    instead of bumping. Encoding: SurfaceType.data[0] bits 21-25 == 4
+    → func_80041D94 returns 4 → D_80119D90[4] = 8 → wall flag bit 3 set
+    → Player_Action detects climbable wall, plays the grab animation.
+    """
+    PX_MIN, PX_MAX = platform_x
+    PZ_MIN, PZ_MAX = platform_z
+
+    header = build_resource_header(RES_COLLISION)
+    NX_POS = 0x7FFF; NX_NEG = 0x8001
+    NY_POS = 0x7FFF; NY_NEG = 0x8001
+    NZ_POS = 0x7FFF; NZ_NEG = 0x8001
+
+    body = bytearray()
+    body += struct.pack('<hhh', -half_w, main_y,   -half_d)
+    body += struct.pack('<hhh',  half_w, ceiling_y, half_d)
+
+    verts: list[tuple[int, int, int]] = []
+    polys: list[tuple] = []
+
+    def add_v(v):
+        verts.append(v)
+        return len(verts) - 1
+
+    # Main floor (large +Y rect at main_y).
+    v_a = add_v((-half_w, main_y, -half_d))
+    v_b = add_v(( half_w, main_y, -half_d))
+    v_c = add_v(( half_w, main_y,  half_d))
+    v_d = add_v((-half_w, main_y,  half_d))
+    polys.append((0, v_a, v_c, v_b, 0, NY_POS, 0, -main_y))
+    polys.append((0, v_a, v_d, v_c, 0, NY_POS, 0, -main_y))
+
+    # Platform floor (+Y rect at platform_y, NW corner).
+    v_a = add_v((PX_MIN, platform_y, PZ_MIN))
+    v_b = add_v((PX_MAX, platform_y, PZ_MIN))
+    v_c = add_v((PX_MAX, platform_y, PZ_MAX))
+    v_d = add_v((PX_MIN, platform_y, PZ_MAX))
+    polys.append((0, v_a, v_c, v_b, 0, NY_POS, 0, -platform_y))
+    polys.append((0, v_a, v_d, v_c, 0, NY_POS, 0, -platform_y))
+
+    # Ceiling (-Y rect).
+    v_a = add_v((-half_w, ceiling_y, -half_d))
+    v_b = add_v(( half_w, ceiling_y, -half_d))
+    v_c = add_v(( half_w, ceiling_y,  half_d))
+    v_d = add_v((-half_w, ceiling_y,  half_d))
+    polys.append((0, v_a, v_b, v_c, 0, NY_NEG, 0, ceiling_y))
+    polys.append((0, v_a, v_c, v_d, 0, NY_NEG, 0, ceiling_y))
+
+    # Outer walls (4 perimeter, full height) — single-sided inward.
+    outer_perimeter = [
+        ((-half_w,  half_d), (-half_w, -half_d)),  # W
+        ((-half_w, -half_d), ( half_w, -half_d)),  # N
+        (( half_w, -half_d), ( half_w,  half_d)),  # E
+        (( half_w,  half_d), (-half_w,  half_d)),  # S
+    ]
+    for (sx, sz), (ex, ez) in outer_perimeter:
+        v_sf = add_v((sx, main_y,     sz))
+        v_ef = add_v((ex, main_y,     ez))
+        v_ec = add_v((ex, ceiling_y,  ez))
+        v_sc = add_v((sx, ceiling_y,  sz))
+        dx, dz = ex - sx, ez - sz
+        if dx == 0:
+            if dz < 0: nx_w, nz_w, d = NX_POS, 0, -sx
+            else:      nx_w, nz_w, d = NX_NEG, 0,  sx
+        else:
+            if dx > 0: nx_w, nz_w, d = 0, NZ_POS, -sz
+            else:      nx_w, nz_w, d = 0, NZ_NEG,  sz
+        polys.append((0, v_sf, v_ef, v_ec, nx_w, 0, nz_w, d))
+        polys.append((0, v_sf, v_ec, v_sc, nx_w, 0, nz_w, d))
+
+    # Platform south face — CLIMBABLE (surface_type 1). Normal +Z so it
+    # blocks players approaching from the main floor (z > PZ_MAX).
+    v_sf = add_v((PX_MAX, main_y,     PZ_MAX))
+    v_ef = add_v((PX_MIN, main_y,     PZ_MAX))
+    v_ec = add_v((PX_MIN, platform_y, PZ_MAX))
+    v_sc = add_v((PX_MAX, platform_y, PZ_MAX))
+    polys.append((1, v_sf, v_ef, v_ec, 0, 0, NZ_POS, -PZ_MAX))
+    polys.append((1, v_sf, v_ec, v_sc, 0, 0, NZ_POS, -PZ_MAX))
+
+    # Platform east face — REGULAR wall. Normal +X.
+    v_sf = add_v((PX_MAX, main_y,     PZ_MIN))
+    v_ef = add_v((PX_MAX, main_y,     PZ_MAX))
+    v_ec = add_v((PX_MAX, platform_y, PZ_MAX))
+    v_sc = add_v((PX_MAX, platform_y, PZ_MIN))
+    polys.append((0, v_sf, v_ef, v_ec, NX_POS, 0, 0, -PX_MAX))
+    polys.append((0, v_sf, v_ec, v_sc, NX_POS, 0, 0, -PX_MAX))
+
+    body += struct.pack('<i', len(verts))
+    for v in verts:
+        body += struct.pack('<hhh', *v)
+    body += struct.pack('<I', len(polys))
+    for surf_type, a, b, c, nx_p, ny_p, nz_p, d in polys:
+        body += struct.pack('<HHHHHHHH',
+                            surf_type, a, b, c,
+                            nx_p & 0xFFFF, ny_p & 0xFFFF, nz_p & 0xFFFF,
+                            d & 0xFFFF)
+
+    # Surface types — TWO entries. Index 0 = default (zero). Index 1 has
+    # the climb flag set (bits 21-25 = 4 in data[0] → func_80041D94
+    # returns 4 → D_80119D90[4] = 8 → bit 3 set → climbable wall).
+    # IMPORTANT: SoH's CollisionHeaderFactory reads data[1] FIRST and
+    # data[0] SECOND (lines 62-63), so the on-disk order is
+    # (data[1], data[0]).
+    body += struct.pack('<I', 2)
+    body += struct.pack('<II', 0, 0)        # idx 0: data[1]=0, data[0]=0
+    body += struct.pack('<II', 0, 4 << 21)  # idx 1: data[1]=0, data[0]=4<<21
+
+    # Camera data — one zero entry.
+    body += struct.pack('<I', 1)
+    body += struct.pack('<Hh', 0, 0)
+    body += struct.pack('<i', 0)
+    body += struct.pack('<i', 0)
+    # Water boxes — none.
+    body += struct.pack('<i', 0)
+
+    return header + bytes(body)
+
+
+def _build_two_level_geometry(half_w, lower_z, upper_z, ramp_z,
+                              lower_y, upper_y, ceiling_y):
+    """Visual mesh for a two-floor room with a ramp connecting them.
+
+    Three floor quads (lower / ramp / upper), one ceiling quad spanning the
+    whole footprint, and four outer perimeter walls running the full y
+    range so they enclose both levels.
+
+    Returns:
+        (verts, colors, n_faces, floor_rects_for_collision, ramp_collision)
+        - floor_rects_for_collision: list of (x_min, x_max, z_min, z_max, y)
+          for the two horizontal floors (lower + upper). Used to emit flat
+          collision polys.
+        - ramp_collision: dict describing the sloped ramp poly for collision.
+    """
+    LOWER_Z_MIN, LOWER_Z_MAX = lower_z
+    UPPER_Z_MIN, UPPER_Z_MAX = upper_z
+    RAMP_Z_MIN, RAMP_Z_MAX = ramp_z
+
+    LIGHT_DIR = (0.4, 0.8, -0.4)
+    SHADE_STRENGTH = 0.55
+    _lmag = math.sqrt(sum(c * c for c in LIGHT_DIR)) or 1.0
+    _lx, _ly, _lz = (c / _lmag for c in LIGHT_DIR)
+
+    def shade(base, normal):
+        nx, ny, nz = normal
+        nmag = math.sqrt(nx * nx + ny * ny + nz * nz) or 1.0
+        nx, ny, nz = nx / nmag, ny / nmag, nz / nmag
+        dot = nx * _lx + ny * _ly + nz * _lz
+        s = 1.0 - SHADE_STRENGTH * (1.0 - 0.5 * (dot + 1.0))
+        s = max(0.0, min(1.0, s))
+        return (int(base[0] * s), int(base[1] * s), int(base[2] * s), base[3])
+
+    floor_lower_col = shade((130, 200, 120, 255), (0,  1, 0))
+    floor_upper_col = shade((180, 200, 130, 255), (0,  1, 0))
+    ramp_col        = shade((180, 160, 110, 255), (0,  1, 0))  # warm sand
+    ceiling_col     = shade((110, 110, 140, 255), (0, -1, 0))
+    wall_palette = [
+        ( 60, 200, 200, 255),  # W
+        ( 60, 100, 220, 255),  # N
+        (200,  60, 200, 255),  # E
+        (220, 200,  60, 255),  # S
+    ]
+
+    verts: list[tuple[int, int, int]] = []
+    colors: list[tuple[int, int, int, int]] = []
+    n_faces = 0
+
+    def push_quad(quad, color):
+        nonlocal n_faces
+        for v in quad:
+            verts.append(v)
+            colors.append(color)
+        n_faces += 1
+
+    # Lower floor (south rectangle) — CCW from above, normal +Y.
+    push_quad([
+        (-half_w, lower_y, LOWER_Z_MAX), ( half_w, lower_y, LOWER_Z_MAX),
+        ( half_w, lower_y, LOWER_Z_MIN), (-half_w, lower_y, LOWER_Z_MIN),
+    ], floor_lower_col)
+    # Upper floor (north rectangle).
+    push_quad([
+        (-half_w, upper_y, UPPER_Z_MAX), ( half_w, upper_y, UPPER_Z_MAX),
+        ( half_w, upper_y, UPPER_Z_MIN), (-half_w, upper_y, UPPER_Z_MIN),
+    ], floor_upper_col)
+    # Ramp — sloped quad from (lower_y, RAMP_Z_MAX) at the south edge up
+    # to (upper_y, RAMP_Z_MIN) at the north. Winding CCW from above so the
+    # normal still leans +Y (just tilted) and Link can walk on it.
+    push_quad([
+        (-half_w, lower_y, RAMP_Z_MAX), ( half_w, lower_y, RAMP_Z_MAX),
+        ( half_w, upper_y, RAMP_Z_MIN), (-half_w, upper_y, RAMP_Z_MIN),
+    ], ramp_col)
+
+    # Ceiling — single quad spanning the full footprint, normal -Y.
+    full_z_min = min(LOWER_Z_MIN, UPPER_Z_MIN, RAMP_Z_MIN)
+    full_z_max = max(LOWER_Z_MAX, UPPER_Z_MAX, RAMP_Z_MAX)
+    push_quad([
+        (-half_w, ceiling_y, full_z_min), ( half_w, ceiling_y, full_z_min),
+        ( half_w, ceiling_y, full_z_max), (-half_w, ceiling_y, full_z_max),
+    ], ceiling_col)
+
+    # Outer walls — full height (lower_y..ceiling_y), so they enclose both
+    # the lower section AND the raised upper section. Winding CCW from
+    # above with interior on the right (same as box-room west wall).
+    outer_perimeter = [
+        ((-half_w, full_z_max), (-half_w, full_z_min)),  # W
+        ((-half_w, full_z_min), ( half_w, full_z_min)),  # N
+        (( half_w, full_z_min), ( half_w, full_z_max)),  # E
+        (( half_w, full_z_max), (-half_w, full_z_max)),  # S
+    ]
+    for idx, ((sx, sz), (ex, ez)) in enumerate(outer_perimeter):
+        dx, dz = ex - sx, ez - sz
+        if dx == 0:
+            n = (1, 0, 0) if dz < 0 else (-1, 0, 0)
+        else:
+            n = (0, 0, 1) if dx > 0 else (0, 0, -1)
+        push_quad([
+            (sx, lower_y,   sz),
+            (ex, lower_y,   ez),
+            (ex, ceiling_y, ez),
+            (sx, ceiling_y, sz),
+        ], shade(wall_palette[idx], n))
+
+    floor_rects_collision = [
+        # (x_min, x_max, z_min, z_max, y)
+        (-half_w, half_w, LOWER_Z_MIN, LOWER_Z_MAX, lower_y),
+        (-half_w, half_w, UPPER_Z_MIN, UPPER_Z_MAX, upper_y),
+    ]
+    ramp_collision = {
+        "x_min": -half_w, "x_max": half_w,
+        "z_south": RAMP_Z_MAX, "y_south": lower_y,
+        "z_north": RAMP_Z_MIN, "y_north": upper_y,
+    }
+    return verts, colors, n_faces, floor_rects_collision, ramp_collision
+
+
+def _build_two_level_collision(half_w, lower_z, upper_z, ramp_z,
+                               lower_y, upper_y, ceiling_y):
+    """Collision body for the two-level layout: two flat floors, one sloped
+    ramp poly, one flat ceiling, four full-height perimeter walls."""
+    LOWER_Z_MIN, LOWER_Z_MAX = lower_z
+    UPPER_Z_MIN, UPPER_Z_MAX = upper_z
+    RAMP_Z_MIN, RAMP_Z_MAX = ramp_z
+    full_z_min = min(LOWER_Z_MIN, UPPER_Z_MIN, RAMP_Z_MIN)
+    full_z_max = max(LOWER_Z_MAX, UPPER_Z_MAX, RAMP_Z_MAX)
+
+    header = build_resource_header(RES_COLLISION)
+    NX_POS = 0x7FFF; NX_NEG = 0x8001
+    NY_POS = 0x7FFF; NY_NEG = 0x8001
+    NZ_POS = 0x7FFF; NZ_NEG = 0x8001
+
+    body = bytearray()
+    body += struct.pack('<hhh', -half_w, lower_y,   full_z_min)
+    body += struct.pack('<hhh',  half_w, ceiling_y, full_z_max)
+
+    verts: list[tuple[int, int, int]] = []
+    polys: list[tuple] = []
+
+    def add_v(v):
+        verts.append(v)
+        return len(verts) - 1
+
+    # ── Floor polys (two horizontal rects, +Y normal) ──
+    for x0, x1, z0, z1, fy in [
+        (-half_w, half_w, LOWER_Z_MIN, LOWER_Z_MAX, lower_y),
+        (-half_w, half_w, UPPER_Z_MIN, UPPER_Z_MAX, upper_y),
+    ]:
+        v_a = add_v((x0, fy, z0))
+        v_b = add_v((x1, fy, z0))
+        v_c = add_v((x1, fy, z1))
+        v_d = add_v((x0, fy, z1))
+        polys.append((0, v_a, v_c, v_b, 0, NY_POS, 0, -fy))
+        polys.append((0, v_a, v_d, v_c, 0, NY_POS, 0, -fy))
+
+    # ── Ramp poly (sloped, normal leans +Y / +Z) ──
+    # Slope: rises from south (z=z_south, y=lower_y) to north (z=z_north,
+    # y=upper_y). dz=z_north-z_south (negative), dy=upper-lower (positive).
+    # Surface normal = (0, dz, -dy) normalised, pointing UP-and-SOUTH.
+    # Actually for a slope going (z=z_south, y=lower) → (z=z_north, y=upper),
+    # the slope vector tangent is (0, upper-lower, z_north-z_south).
+    # Perpendicular pointing UP: rotate 90° in y-z plane, get (0, -(dz_t),
+    # dy_t) where (dy_t, dz_t) is the slope's tangent in y-z. With
+    # slope rising as z decreases, the up-normal is (0, +|dz|, +|dy|).
+    dy = upper_y - lower_y          # > 0
+    dz = RAMP_Z_MIN - RAMP_Z_MAX    # < 0 (going north decreases z)
+    slope_len = math.sqrt(dy * dy + dz * dz)
+    ny_f = -dz / slope_len          # +ve  (since dz<0)
+    nz_f =  dy / slope_len          # +ve  (since dy>0)
+    ny = int(ny_f * 0x7FFF)
+    nz = int(nz_f * 0x7FFF)
+    # dist = -dot(normal, point_on_plane), pick south edge.
+    dist = -(int(ny_f * lower_y) + int(nz_f * RAMP_Z_MAX))
+
+    v_rs0 = add_v((-half_w, lower_y, RAMP_Z_MAX))   # south-west, lower
+    v_rs1 = add_v(( half_w, lower_y, RAMP_Z_MAX))   # south-east, lower
+    v_rn1 = add_v(( half_w, upper_y, RAMP_Z_MIN))   # north-east, upper
+    v_rn0 = add_v((-half_w, upper_y, RAMP_Z_MIN))   # north-west, upper
+    polys.append((0, v_rs0, v_rn1, v_rs1, 0, ny, nz, dist))
+    polys.append((0, v_rs0, v_rn0, v_rn1, 0, ny, nz, dist))
+
+    # ── Ceiling poly (-Y normal) ──
+    v_c0 = add_v((-half_w, ceiling_y, full_z_min))
+    v_c1 = add_v(( half_w, ceiling_y, full_z_min))
+    v_c2 = add_v(( half_w, ceiling_y, full_z_max))
+    v_c3 = add_v((-half_w, ceiling_y, full_z_max))
+    polys.append((0, v_c0, v_c1, v_c2, 0, NY_NEG, 0, ceiling_y))
+    polys.append((0, v_c0, v_c2, v_c3, 0, NY_NEG, 0, ceiling_y))
+
+    # ── Perimeter walls (4 full-height) ──
+    outer_perimeter = [
+        ((-half_w, full_z_max), (-half_w, full_z_min)),  # W
+        ((-half_w, full_z_min), ( half_w, full_z_min)),  # N
+        (( half_w, full_z_min), ( half_w, full_z_max)),  # E
+        (( half_w, full_z_max), (-half_w, full_z_max)),  # S
+    ]
+    for (sx, sz), (ex, ez) in outer_perimeter:
+        v_sf = add_v((sx, lower_y,   sz))
+        v_ef = add_v((ex, lower_y,   ez))
+        v_ec = add_v((ex, ceiling_y, ez))
+        v_sc = add_v((sx, ceiling_y, sz))
+        dx, dz = ex - sx, ez - sz
+        if dx == 0:
+            if dz < 0:
+                nx_w, nz_w, d = NX_POS, 0, -sx
+            else:
+                nx_w, nz_w, d = NX_NEG, 0,  sx
+        else:
+            if dx > 0:
+                nx_w, nz_w, d = 0, NZ_POS, -sz
+            else:
+                nx_w, nz_w, d = 0, NZ_NEG,  sz
+        polys.append((0, v_sf, v_ef, v_ec, nx_w, 0, nz_w, d))
+        polys.append((0, v_sf, v_ec, v_sc, nx_w, 0, nz_w, d))
+
+    body += struct.pack('<i', len(verts))
+    for v in verts:
+        body += struct.pack('<hhh', *v)
+    body += struct.pack('<I', len(polys))
+    for surf_type, a, b, c, nx_p, ny_p, nz_p, d in polys:
+        body += struct.pack('<HHHHHHHH',
+                            surf_type, a, b, c,
+                            nx_p & 0xFFFF, ny_p & 0xFFFF, nz_p & 0xFFFF,
+                            d & 0xFFFF)
+    # Surface types — single zero entry, same shape as the box builder.
+    body += struct.pack('<I', 1)
+    body += struct.pack('<II', 0, 0)
+    # Camera data — one zero entry.
+    body += struct.pack('<I', 1)
+    body += struct.pack('<Hh', 0, 0)
+    body += struct.pack('<i', 0)
+    body += struct.pack('<i', 0)
+    # Water boxes — none.
+    body += struct.pack('<i', 0)
+
+    return header + bytes(body)
+
+
 def build_mesh_lab_o2r(output_path: Path | str, layout: str = "empty") -> Path:
     """Build a Mesh Lab .o2r — a single-room sandbox for custom geometry.
 
@@ -2137,6 +2629,7 @@ def build_mesh_lab_o2r(output_path: Path | str, layout: str = "empty") -> Path:
 
     actors: list[dict] = []
     transition_actors: list[dict] = []
+    extra_object_ids_for_layout: list[int] = []
     spawn_rot_y = 0x8000  # default: facing -Z (north)
 
     if layout == "empty":
@@ -2280,13 +2773,54 @@ def build_mesh_lab_o2r(output_path: Path | str, layout: str = "empty") -> Path:
         shape_desc = ("maze v2 complex — 1000×600×1000 thick-walled, 4 "
                       "barriers + 2 dead-end stubs, small chest (key) → "
                       "locked door → big chest")
+    elif layout == "two_level":
+        # OBJECT_MORI_OBJECTS holds gMoriHashigoLadderDL (Forest Temple
+        # wooden ladder, fully textured). Adding it to the lab's
+        # ObjectList loads its texture+mesh data into the object bank so
+        # LiveGenDecoration can render the DL via __OTR__ resolution.
+        extra_object_ids_for_layout = [OBJECT_MORI_OBJECTS]
+        # Main floor everywhere + raised platform in NW corner. Player
+        # approaches the platform's south face on the main floor and
+        # climbs the ladder up. Chest waits on top.
+        MAIN_Y         = -100
+        PLATFORM_Y     =  100
+        CEILING_Y      =  500
+        HALF_W, HALF_D = 700, 700
+        PLATFORM_X     = (-700, -100)   # NW corner, 600 wide
+        PLATFORM_Z     = (-700, -200)   # NW corner, 500 deep
+
+        verts, cols, n_faces = _build_two_level_v2_geometry(
+            half_w=HALF_W, half_d=HALF_D,
+            platform_x=PLATFORM_X, platform_z=PLATFORM_Z,
+            main_y=MAIN_Y, platform_y=PLATFORM_Y, ceiling_y=CEILING_Y,
+        )
+        collision = _build_two_level_v2_collision(
+            half_w=HALF_W, half_d=HALF_D,
+            platform_x=PLATFORM_X, platform_z=PLATFORM_Z,
+            main_y=MAIN_Y, platform_y=PLATFORM_Y, ceiling_y=CEILING_Y,
+        )
+        FLOOR_Y = MAIN_Y
+        spawn = (0, 0, HALF_D - 100)   # south end of the main floor, facing -Z
+        actors = [
+            # Reward chest on the platform, centred on its NW quadrant.
+            # rot_y=0x8000 faces -Z (north) so Link — who climbs up from
+            # the south face of the platform — approaches the chest's
+            # FRONT instead of its back.
+            {"name": "chest", "x": -400, "y": PLATFORM_Y, "z": -500,
+             "rot_y": 0x8000,
+             "params": chest_params(chest_type=ENBOX_TYPE_BIG_DEFAULT,
+                                     item_id=GI_HEART_PIECE,
+                                     treasure_flag=14)},
+        ]
+        shape_desc = ("two-level v2 — main floor + NW platform (raised 200), "
+                      "climbable ladder on the platform's south face, chest on top")
     else:
         raise ValueError(f"Unknown mesh-lab layout: {layout!r}")
 
     # Union of object IDs required by every actor + transition actor — keeps
     # En_Door and chests rendering even though the lab is a single-room
     # scene (so func_80031A28 doesn't sweep them at load).
-    shared_objects: set[int] = set()
+    shared_objects: set[int] = set(extra_object_ids_for_layout)
     for ta in transition_actors:
         if ta["actor_name"] in ACTOR_LIBRARY:
             shared_objects.update(ACTOR_LIBRARY[ta["actor_name"]][2])
@@ -2393,7 +2927,7 @@ def main():
     # layout name is embedded in the output filename and matched against
     # LiveGenPanel's experiment table.
     if "--mesh-lab" in sys.argv:
-        for layout in ("empty", "l_shape", "maze", "maze_complex"):
+        for layout in ("empty", "l_shape", "maze", "maze_complex", "two_level"):
             lab_output = output.with_name(f"zzz_mesh_lab_{layout}.o2r")
             build_mesh_lab_o2r(lab_output, layout=layout)
         return
